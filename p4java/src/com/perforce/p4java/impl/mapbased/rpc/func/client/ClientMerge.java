@@ -12,14 +12,16 @@ import java.util.Properties;
 import com.perforce.p4java.Log;
 import com.perforce.p4java.PropertyDefs;
 import com.perforce.p4java.exception.ConnectionException;
-import com.perforce.p4java.impl.generic.sys.ISystemFileCommandsHelper;
+import com.perforce.p4java.exception.FileDecoderException;
+import com.perforce.p4java.exception.FileEncoderException;
 import com.perforce.p4java.exception.MessageGenericCode;
 import com.perforce.p4java.exception.MessageSeverityCode;
 import com.perforce.p4java.exception.NullPointerError;
+import com.perforce.p4java.impl.generic.sys.ISystemFileCommandsHelper;
 import com.perforce.p4java.impl.mapbased.client.Client;
 import com.perforce.p4java.impl.mapbased.rpc.CommandEnv;
-import com.perforce.p4java.impl.mapbased.rpc.RpcPropertyDefs;
 import com.perforce.p4java.impl.mapbased.rpc.CommandEnv.RpcHandler;
+import com.perforce.p4java.impl.mapbased.rpc.RpcPropertyDefs;
 import com.perforce.p4java.impl.mapbased.rpc.connection.RpcConnection;
 import com.perforce.p4java.impl.mapbased.rpc.func.RpcFunctionMapKey;
 import com.perforce.p4java.impl.mapbased.rpc.func.client.ClientMessage.ClientMessageId;
@@ -284,18 +286,30 @@ public class ClientMerge {
 			try {
 				mergeState.writeTheirChunk(data);
 			} catch (IOException ioexc) {
-					Log.error("I/O exception in clientWriteMerge: "
-							+ ioexc.getLocalizedMessage());
-					Log.exception(ioexc);
-					handler.setError(true);
-				}
+				Log.error("I/O exception in clientWriteMerge: "
+						+ ioexc.getLocalizedMessage());
+				Log.exception(ioexc);
+				handler.setError(true);
+			} catch (FileDecoderException e) {
+				Log.error("Charset converstion exception in clientWriteMerge: "
+						+ e.getLocalizedMessage());
+				Log.exception(e);
+				handler.setError(true);
+			} catch (FileEncoderException e) {
+				Log.error("Charset converstion exception in clientWriteMerge: "
+						+ e.getLocalizedMessage());
+				Log.exception(e);
+				handler.setError(true);
+			}
 			return RpcPacketDispatcherResult.CONTINUE_LOOP;
 		}
 		
 		if (bitsStr != null) {
 			try {
 				bits = new Integer(bitsStr);
-			} catch (Throwable thr) {
+			// p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+			// } catch (Throwable thr) {
+			} catch (Exception thr) {
 				Log.error("Unexpected exception in clientWriteMerge: "
 						+ thr.getLocalizedMessage());
 				Log.exception(thr);
@@ -378,10 +392,12 @@ public class ClientMerge {
 
 				if (mergeState.isShowAll() || ((bits & SEL_CONF) != 0)
 						|| ((bits == SEL_ALL) && (oldBits & SEL_CONF) != 0)) {
+
 					mergeState.writeMarker(
 									needNewline ? "\n" : ""
 									+ marker
 									+ "\n");
+					
 					markersInFile++;
 					if (needNewline) {
 						needNewline = false;
@@ -428,6 +444,16 @@ public class ClientMerge {
 			Log.error("I/O exception in clientWriteMerge: "
 					+ ioexc.getLocalizedMessage());
 			Log.exception(ioexc);
+			handler.setError(true);
+		} catch (FileDecoderException e) {
+			Log.error("Charset converstion exception in clientWriteMerge: "
+					+ e.getLocalizedMessage());
+			Log.exception(e);
+			handler.setError(true);
+		} catch (FileEncoderException e) {
+			Log.error("Charset converstion exception in clientWriteMerge: "
+					+ e.getLocalizedMessage());
+			Log.exception(e);
 			handler.setError(true);
 		}
 		

@@ -17,18 +17,17 @@ import java.util.Map;
 public class PerforceCharsetProvider extends CharsetProvider {
 	private static final String CHARSET_NAME = "P4ShiftJIS";
 	private Charset charset = null;
-	private static Map<String, Charset> charsetNameMap = new HashMap<String, Charset>();
+  private static Map<String, Charset> charsetNameMap = new HashMap<String, Charset>();
 
 	/**
 	 * Instantiate a charset object.
 	 */
 	public PerforceCharsetProvider() {
-		this.charset = new PerforceShiftJISCharset(CHARSET_NAME,
-				new String[] { "P4-ShiftJIS", "p4shiftjis", "p4-shiftjis" });
-		charsetNameMap.put(this.charset.name(), this.charset);
-		for (Iterator<String> aliases = this.charset.aliases().iterator(); aliases.hasNext();) {
-			charsetNameMap.put((String)aliases.next(), this.charset);
-		}
+      charset = new PerforceShiftJISCharset(CHARSET_NAME, new String[]{"P4-ShiftJIS", "p4shiftjis", "p4-shiftjis"});
+      charsetNameMap.put(charset.name(), charset);
+      for (Iterator<String> aliases = charset.aliases().iterator(); aliases.hasNext(); ) {
+        charsetNameMap.put(aliases.next(), charset);
+      }
 	}
 
 	/**
@@ -45,8 +44,8 @@ public class PerforceCharsetProvider extends CharsetProvider {
 	 * Return an Iterator over the set of Charset objects we provide.
 	 */
 	public Iterator<Charset> charsets() {
-		HashSet<Charset> set = new HashSet<Charset>();
-		set.add(this.charset);
+      HashSet<Charset> set = new HashSet<Charset>();
+      set.add(this.charset);
 		return (set.iterator());
 	}
 }

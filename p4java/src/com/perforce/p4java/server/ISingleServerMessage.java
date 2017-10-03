@@ -44,4 +44,8 @@ public interface ISingleServerMessage {
     boolean hasMessageFragment(String fragment);
 
     String getCode();
+
+    boolean isInfo();
+
+    boolean isError();
 }

@@ -3,6 +3,9 @@
  */
 package com.perforce.p4java.impl.generic.core;
 
+import static com.perforce.p4java.common.base.ObjectUtils.nonNull;
+import static com.perforce.p4java.util.compat.StringUtils.isNotBlank;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -11,295 +14,281 @@ import com.perforce.p4java.Log;
 import com.perforce.p4java.core.IUserGroup;
 import com.perforce.p4java.exception.AccessException;
 import com.perforce.p4java.exception.ConnectionException;
-import com.perforce.p4java.exception.NullPointerError;
 import com.perforce.p4java.exception.RequestException;
 import com.perforce.p4java.impl.mapbased.MapKeys;
 import com.perforce.p4java.server.IServer;
+import com.perforce.p4java.util.compat.Jdk7Nonnull;
+import com.perforce.p4java.util.compat.Jdk7Nullable;
+import com.perforce.p4java.util.compat.Validate;
 
 /**
  * Simple generic implementation class for the IUserGroup interface.
  */
 
 public class UserGroup extends ServerResource implements IUserGroup {
-	
-	/**
-	 * How the Perforce server represents an unset group value as a string.
-	 */
-	public static final String UNSET_STR = "unset";
-	
-	/**
-	 * How the Perforce server represents an unlimited group value as a string.
-	 */
-	public static final String UNLIMITED_STR = "unlimited";
-	
-	private String name = null;
-	private int maxResults = UNSET;
-	private int maxScanRows = UNSET;
-	private int maxLockTime = UNSET;
-	private int timeout = UNSET;
-	private int passwordTimeout = UNSET;
-	private boolean subGroup = false;
-	private List<String> subgroups = null;
-	private List<String> owners = null;
-	private List<String> users = null;
-	
-	/**
-	 * Simple convenience factory method to return a new local UserGroup object.<p>
-	 * 
-	 * All fields not passed as parameters here default to the defaults applied by
-	 * the associated default UserGroup constructor.
-	 * 
-	 * @param name non-null name for the UserGroup.
-	 * @param users possibly-null list of users to be associated with the group.
-	 * @return new user group.
-	 */
-	public static UserGroup newUserGroup(String name, List<String> users) {
-		if (name == null) {
-			throw new NullPointerError("null user group name in UserGroup.newUserGroup()");
-		}
-		
-		UserGroup group = new UserGroup();
-		group.setName(name);
-		group.setUsers(users);
-		
-		return group;
-	}
-	
-	/**
-	 * Default constructor. Sets all fields to null, UNSET, or false.
-	 * Sets superclass IServerResource fields complete, completeable,
-	 * refereable and updateable to true.
-	 */
-	public UserGroup() {
-		super(true, true);
-	}
-	
-	/**
-	 * Construct a new user group impl from the passed-in map. Note that this
-	 * map must come from the Perforce "group" command or exact equivalent; using
-	 * a map passed back by (e.g.) the Perforce "groups" (note the plural) command
-	 * will fail due to the way the Perforce server returns group lists rather
-	 * than individual groups. Calling this with a null map argument is
-	 * equivalent to calling the default constructor.<p>
-	 * 
-	 * Sets superclass IServerResource fields complete, completeable,
-	 * refereable and updateable to true.
-	 */
-	public UserGroup(Map<String, Object> map) {
-		super(true, true);
-		if (map != null) {
-			try {
-				this.name = (String) map.get(MapKeys.GROUP_KEY);
-				this.maxLockTime = parseGroupIntValue((String) map.get(MapKeys.MAXLOCKTIME_KEY));
-				this.maxResults = parseGroupIntValue((String) map.get(MapKeys.MAXRESULTS_KEY));
-				this.maxScanRows = parseGroupIntValue((String) map.get(MapKeys.MAXSCANROWS_KEY));
-				this.timeout = parseGroupIntValue((String) map.get(MapKeys.TIMEOUT_KEY));
-				this.passwordTimeout = parseGroupIntValue((String) map.get(MapKeys.PASSWORD_TIMEOUT_KEY));
-				
-				String key = MapKeys.USERS_KEY;
-				for (int i = 0; ; i++) {
-					if (!map.containsKey(key + i)) {
-						break;
-					} else {
-						if (this.users == null) {
-							this.users = new ArrayList<String>();
-						}
-						this.users.add((String) map.get(key + i));
-					}
-				}
-				
-				key = MapKeys.OWNERS_KEY;
-				for (int i = 0; ; i++) {
-					if (!map.containsKey(key + i)) {
-						break;
-					} else {
-						if (this.owners == null) {
-							this.owners = new ArrayList<String>();
-						}
-						this.owners.add((String) map.get(key + i));
-					}
-				}
-				
-				key = MapKeys.SUBGROUPS_KEY;
-				for (int i = 0; ; i++) {
-					if (!map.containsKey(key + i)) {
-						break;
-					} else {
-						if (this.subgroups == null) {
-							this.subgroups = new ArrayList<String>();
-						}
-						this.subgroups.add((String) map.get(key + i));
-					}
-				}
-			} catch (Throwable thr) {
-				Log.warn("Unexpected exception in UserGroup constructor: "
-											+ thr.getMessage());
-				Log.exception(thr);
-			}
-		}
-	}
+    /**
+     * How the Perforce server represents an unset group value as a string.
+     */
+    private static final String UNSET_STR = "unset";
 
-	/**
-	 * @see com.perforce.p4java.core.IUserGroup#getMaxLockTime()
-	 */
-	public int getMaxLockTime() {
-		return this.maxLockTime;
-	}
+    /**
+     * How the Perforce server represents an unlimited group value as a string.
+     */
+    private static final String UNLIMITED_STR = "unlimited";
 
-	/**
-	 * @see com.perforce.p4java.core.IUserGroup#getMaxResults()
-	 */
-	public int getMaxResults() {
-		return this.maxResults;
-	}
+    private String name = null;
+    private int maxResults = UNSET;
+    private int maxScanRows = UNSET;
+    /* TimeUnit: milliseconds */
+    private int maxLockTime = UNSET;
+    /* TimeUnit: seconds */
+    private int timeout = UNSET;
+    /* TimeUnit: seconds */
+    private int passwordTimeout = UNSET;
+    private boolean subGroup = false;
+    private List<String> subgroups = new ArrayList<String>();
+    private List<String> owners = new ArrayList<String>();
+    private List<String> users = new ArrayList<String>();
 
-	/**
-	 * @see com.perforce.p4java.core.IUserGroup#getMaxScanRows()
-	 */
-	public int getMaxScanRows() {
-		return this.maxScanRows;
-	}
+    /**
+     * Simple convenience factory method to return a new local UserGroup object.
+     * <p>
+     *
+     * All fields not passed as parameters here default to the defaults applied
+     * by the associated default UserGroup constructor.
+     *
+     * @param name
+     *            non-null name for the UserGroup.
+     * @param users
+     *            possibly-null list of users to be associated with the group.
+     * @return new user group.
+     */
+    public static UserGroup newUserGroup(@Jdk7Nonnull final String name,
+            @Jdk7Nonnull final List<String> users) {
+        Validate.notNull(name);
 
-	/**
-	 * @see com.perforce.p4java.core.IUserGroup#getName()
-	 */
-	public String getName() {
-		return this.name;
-	}
+        UserGroup group = new UserGroup();
+        group.setName(name);
+        group.setUsers(users);
 
-	/**
-	 * @see com.perforce.p4java.core.IUserGroup#getOwners()
-	 */
-	public List<String> getOwners() {
-		return this.owners;
-	}
+        return group;
+    }
 
-	/**
-	 * @see com.perforce.p4java.core.IUserGroup#getSubgroups()
-	 */
-	public List<String> getSubgroups() {
-		return this.subgroups;
-	}
+    /**
+     * @deprecated Please use method <code>addUser(String user)</code>
+     */
+    public void setUsers(List<String> users) {
+        if (nonNull(users)) {
+            this.users.addAll(users);
+        }
+    }
 
-	/**
-	 * @see com.perforce.p4java.core.IUserGroup#getTimeout()
-	 */
-	public int getTimeout() {
-		return this.timeout;
-	}
+    /**
+     * Default constructor. Sets all fields to null, UNSET, or false. Sets
+     * superclass IServerResource fields complete, completeable, refereable and
+     * updateable to true.
+     */
+    public UserGroup() {
+        super(true, true);
+    }
 
-	/**
-	 * @see com.perforce.p4java.core.IUserGroup#getUsers()
-	 */
-	public List<String> getUsers() {
-		return this.users;
-	}
-	
-	/**
-	 * @see com.perforce.p4java.core.IUserGroup#isSubGroup()
-	 */
-	public boolean isSubGroup() {
-		return this.subGroup;
-	}
+    /**
+     * Construct a new user group impl from the passed-in map. Note that this
+     * map must come from the Perforce "group" command or exact equivalent;
+     * using a map passed back by (e.g.) the Perforce "groups" (note the plural)
+     * command will fail due to the way the Perforce server returns group lists
+     * rather than individual groups. Calling this with a null map argument is
+     * equivalent to calling the default constructor.
+     * <p>
+     *
+     * Sets superclass IServerResource fields complete, completeable, refereable
+     * and updateable to true.
+     */
+    public UserGroup(@Jdk7Nullable final Map<String, Object> map) {
+        super(true, true);
+        if (nonNull(map)) {
+            try {
+                name = (String) map.get(MapKeys.GROUP_KEY);
+                maxLockTime = parseGroupIntValue((String) map.get(MapKeys.MAXLOCKTIME_KEY));
+                maxResults = parseGroupIntValue((String) map.get(MapKeys.MAXRESULTS_KEY));
+                maxScanRows = parseGroupIntValue((String) map.get(MapKeys.MAXSCANROWS_KEY));
+                timeout = parseGroupIntValue((String) map.get(MapKeys.TIMEOUT_KEY));
+                passwordTimeout = parseGroupIntValue(
+                        (String) map.get(MapKeys.PASSWORD_TIMEOUT_KEY));
 
-	public void setName(String name) {
-		this.name = name;
-	}
+                addToListIfKeyIsNotExistInMap(users, map, MapKeys.USERS_KEY);
+                addToListIfKeyIsNotExistInMap(owners, map, MapKeys.OWNERS_KEY);
+                addToListIfKeyIsNotExistInMap(subgroups, map, MapKeys.SUBGROUPS_KEY);
+            // p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+            // } catch (Throwable thr) {
+            } catch (Exception thr) {
+                Log.warn("Unexpected exception in UserGroup constructor: %s", thr.getMessage());
+                Log.exception(thr);
+            }
+        }
+    }
 
-	public void setMaxResults(int maxResults) {
-		this.maxResults = maxResults;
-	}
+    /**
+     * Parse a Perforce server-side string representing a user group integer
+     * value (such as timeout). Copes with "unset" and "unlimited" properly.
+     */
+    public int parseGroupIntValue(String str) {
+        if (isNotBlank(str)) {
+            if (UNSET_STR.equalsIgnoreCase(str)) {
+                return UNSET;
+            } else if (UNLIMITED_STR.equalsIgnoreCase(str)) {
+                return UNLIMITED;
+            } else {
+                return new Integer(str);
+            }
+        }
+        return UNSET;
+    }
 
-	public void setMaxScanRows(int maxScanRows) {
-		this.maxScanRows = maxScanRows;
-	}
+    private void addToListIfKeyIsNotExistInMap(@Jdk7Nonnull final List<String> lists,
+            @Jdk7Nonnull Map<String, Object> map, @Jdk7Nonnull String key) {
 
-	public void setMaxLockTime(int maxLockTime) {
-		this.maxLockTime = maxLockTime;
-	}
+        for (int i = 0;; i++) {
+            if (!map.containsKey(key + i)) {
+                break;
+            } else {
+                lists.add((String) map.get(key + i));
+            }
+        }
+    }
 
-	public void setTimeout(int timeout) {
-		this.timeout = timeout;
-	}
+    public int getMaxLockTime() {
+        return this.maxLockTime;
+    }
 
-	public void setSubgroups(List<String> subgroups) {
-		this.subgroups = subgroups;
-	}
+    public void setMaxLockTime(int maxLockTimeOfMilliSeconds) {
+        this.maxLockTime = maxLockTimeOfMilliSeconds;
+    }
 
-	public void setOwners(List<String> owners) {
-		this.owners = owners;
-	}
+    public int getMaxResults() {
+        return this.maxResults;
+    }
 
-	public void setUsers(List<String> users) {
-		this.users = users;
-	}
+    public void setMaxResults(int maxResults) {
+        this.maxResults = maxResults;
+    }
 
-	public void setSubGroup(boolean subGroup) {
-		this.subGroup = subGroup;
-	}
-	
-	/**
-	 * Parse a Perforce server-side string representing a user group
-	 * integer value (such as timeout). Copes with "unset" and
-	 * "unlimited" properly.
-	 */
-	public int parseGroupIntValue(String str) {
-		if (str != null) {
-			if (str.equalsIgnoreCase(UNSET_STR)) {
-				return UNSET;
-			} else if (str.equalsIgnoreCase(UNLIMITED_STR)) {
-				return UNLIMITED;
-			} else {
-				return new Integer(str);
-			}
-		}
-		return UNSET;
-	}
-	
-	/**
-	 * @see com.perforce.p4java.impl.generic.core.ServerResource#refresh()
-	 */
-	@Override
-	public void refresh() throws ConnectionException, RequestException,
-										AccessException {
-		IServer refreshServer = this.server;
-		String refreshName = this.getName();
-		if (refreshServer != null && refreshName != null) {
-			IUserGroup refreshedUserGroup = refreshServer.getUserGroup(refreshName);
-			if (refreshedUserGroup != null) {
-				this.maxLockTime = refreshedUserGroup.getMaxLockTime();
-				this.name = refreshedUserGroup.getName();
-				this.maxResults = refreshedUserGroup.getMaxResults();
-				this.maxScanRows = refreshedUserGroup.getMaxScanRows();
-				this.owners = refreshedUserGroup.getOwners();
-				this.subGroup = refreshedUserGroup.isSubGroup();
-				this.timeout = refreshedUserGroup.getTimeout();
-				this.subgroups = refreshedUserGroup.getSubgroups();
-				this.users = refreshedUserGroup.getUsers();
-			}
-		}
-	}
-	
-	/**
-	 * @see com.perforce.p4java.impl.generic.core.ServerResource#update()
-	 */
-	@Override
-	public void update()
-		throws ConnectionException, RequestException, AccessException {
-			this.server.updateUserGroup(this, false);
-	}
+    public int getMaxScanRows() {
+        return this.maxScanRows;
+    }
 
-	/**
-	 * @see com.perforce.p4java.core.IUserGroup#getPasswordTimeout()
-	 */
-	public int getPasswordTimeout() {
-		return passwordTimeout;
-	}
+    public void setMaxScanRows(int maxScanRows) {
+        this.maxScanRows = maxScanRows;
+    }
 
-	/**
-	 * @see com.perforce.p4java.core.IUserGroup#setPasswordTimeout(int)
-	 */
-	public void setPasswordTimeout(int passwordTimeout) {
-		this.passwordTimeout = passwordTimeout;
-	}
+    public String getName() {
+        return this.name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public List<String> getOwners() {
+        return this.owners;
+    }
+
+    public int getPasswordTimeout() {
+        return passwordTimeout;
+    }
+
+    public void setPasswordTimeout(int passwordTimeoutOfSeconds) {
+        this.passwordTimeout = passwordTimeoutOfSeconds;
+    }
+
+    public List<String> getSubgroups() {
+        return this.subgroups;
+    }
+
+    public int getTimeout() {
+        return this.timeout;
+    }
+
+    public void setTimeout(int timeoutOfSeconds) {
+        this.timeout = timeoutOfSeconds;
+    }
+
+    public List<String> getUsers() {
+        return this.users;
+    }
+
+    public boolean isSubGroup() {
+        return this.subGroup;
+    }
+
+    public void setSubGroup(boolean subGroup) {
+        this.subGroup = subGroup;
+    }
+
+    @Override
+    public void refresh() throws ConnectionException, RequestException, AccessException {
+        IServer refreshServer = server;
+        String refreshName = getName();
+        if (nonNull(refreshServer) && isNotBlank(refreshName)) {
+            IUserGroup refreshedUserGroup = refreshServer.getUserGroup(refreshName);
+            if (nonNull(refreshedUserGroup)) {
+                maxLockTime = refreshedUserGroup.getMaxLockTime();
+                name = refreshedUserGroup.getName();
+                maxResults = refreshedUserGroup.getMaxResults();
+                maxScanRows = refreshedUserGroup.getMaxScanRows();
+                owners = refreshedUserGroup.getOwners();
+                subGroup = refreshedUserGroup.isSubGroup();
+                timeout = refreshedUserGroup.getTimeout();
+                subgroups = refreshedUserGroup.getSubgroups();
+                users = refreshedUserGroup.getUsers();
+            }
+        }
+    }
+
+    @Override
+    public void update() throws ConnectionException, RequestException, AccessException {
+        server.updateUserGroup(this, false);
+    }
+
+    /**
+     * @deprecated Please use method <code>addSubgroup(String subgroup)</code>
+     */
+    public void setSubgroups(List<String> subgroups) {
+        if (nonNull(subgroups)) {
+            this.subgroups.addAll(subgroups);
+        }
+    }
+
+    /**
+     * @deprecated Please use method <code>addOwner(String owner)</code>
+     */
+    public void setOwners(List<String> owners) {
+        if (nonNull(owners)) {
+            this.owners.addAll(owners);
+        }
+    }
+
+    public UserGroup addOwner(final String owner) {
+        if (isNotBlank(owner)) {
+            owners.add(owner);
+        }
+
+        return this;
+    }
+
+    public UserGroup addSubgroup(final String subgroup) {
+        if (isNotBlank(subgroup)) {
+            subgroups.add(subgroup);
+        }
+
+        return this;
+    }
+
+    public UserGroup addUser(final String user) {
+        if (isNotBlank(user)) {
+            users.add(user);
+        }
+
+        return this;
+    }
 }

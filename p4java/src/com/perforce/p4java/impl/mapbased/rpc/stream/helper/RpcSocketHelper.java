@@ -79,7 +79,9 @@ public class RpcSocketHelper {
 			if (sockSendBufSize != 0) {
 				socket.setSendBufferSize(sockSendBufSize);
 			}
-		} catch (Throwable exc) {
+		// p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+		// } catch (Throwable exc) {
+		} catch (Exception exc) {
 			Log
 					.warn("Unexpected exception while setting Perforce RPC socket options: "
 							+ exc.getLocalizedMessage());

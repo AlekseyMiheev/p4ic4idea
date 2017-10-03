@@ -84,7 +84,7 @@ public class RpcPropertyDefs {
 	 * Default size in bytes of the "peek" we take into local files to try
 	 * to infer from the contents what type the file is.
 	 */
-	public static final int RPC_DEFAULT_FILETYPE_PEEK_SIZE = 1024;
+	public static final int RPC_DEFAULT_FILETYPE_PEEK_SIZE = 1024 * 64;
 	
 	/**
 	 * Default setting for enable/disable TCP_NODELAY (disable/enable Nagle's

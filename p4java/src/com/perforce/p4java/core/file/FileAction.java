@@ -16,8 +16,8 @@ import com.perforce.p4java.exception.P4JavaError;
  */
 
 public enum FileAction {
-	// groboclown: add ADD action
 	ADD,
+	// p4ic4idea: add ADD_EDIT action (old API compatibility)
 	ADD_EDIT,
 	BRANCH,
 	EDIT,
@@ -45,6 +45,7 @@ public enum FileAction {
 	EDIT_FROM,
 	PURGE,
 	IMPORT,
+	// p4ic4idea: add ARCHIVE action.
 	ARCHIVE,
 	
 	UNKNOWN;
@@ -124,9 +125,8 @@ public enum FileAction {
 	 * Provide a string representation that looks like the same actions
 	 * seen through the p4 command interpreter rather than the raw enum.
 	 * 
-	 * @see Enum#toString()
+	 * @see java.lang.Enum#toString()
 	 */
-	@Override
 	public String toString() {
 		int ord = this.ordinal();
 		if (ord >= names.length) {

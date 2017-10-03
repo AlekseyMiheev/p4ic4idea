@@ -9,11 +9,12 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.perforce.p4java.Log;
-import com.perforce.p4java.exception.P4JavaError;
-import com.perforce.p4java.exception.NullPointerError;
-import com.perforce.p4java.exception.MessageSubsystemCode;
 import com.perforce.p4java.exception.MessageGenericCode;
 import com.perforce.p4java.exception.MessageSeverityCode;
+import com.perforce.p4java.exception.MessageSubsystemCode;
+import com.perforce.p4java.exception.NullPointerError;
+import com.perforce.p4java.exception.P4JavaError;
+import com.perforce.p4java.impl.mapbased.rpc.func.RpcFunctionMapKey;
 import com.perforce.p4java.impl.mapbased.rpc.func.client.ClientMessage;
 import com.perforce.p4java.impl.mapbased.rpc.func.client.ClientMessage.ClientMessageId;
 
@@ -56,7 +57,7 @@ public class RpcMessage {
 	/**
 	 * CODE - code
 	 */
-	public static final String CODE = "code";
+	public static final String CODE = RpcFunctionMapKey.CODE;
 	
 	/**
 	 * FMT - fmt
@@ -74,7 +75,7 @@ public class RpcMessage {
 	
 	// Pattern matching defs for error / info (etc.) message parsing:
 	
-	private static final String ALT_PATTERN = "\\[[^\\[]*\\]";
+	private static final String ALT_PATTERN = "\\[[^\\[^\\]]*\\]";
 	private static final String PC_PATTERN = "%[^%]*%";
 	private static final String SPLIT_PATTERN = "\\|";
 	private static final String SPLIT_MARKER = "|";
@@ -385,7 +386,7 @@ public class RpcMessage {
 					}
 					
 					if ((useIndx < 0) || (useIndx > 1)) {
-						strBuf.append(matchStr);
+	                    strBuf.append("[").append(matchStr).append("]");
 					} else {
 						strBuf.append(splitMatch[useIndx]);
 					}
@@ -393,6 +394,8 @@ public class RpcMessage {
 			} else {
 				if (containsValueMatches(matchStr, argMap)) {
 					strBuf.append(matchStr);
+				} else if (!matchStr.contains(PC_MARKER)) {
+				    strBuf.append("[").append(matchStr).append("]");
 				}
 			}
 			i = altMatcher.start();
@@ -412,9 +415,14 @@ public class RpcMessage {
 		int j = 0;
 		while (pcMatcher.find()) {
 			String match = pcMatcher.group();
+			String repl = null;
 			
 			outBuf.append(strBuf.subSequence(j, pcMatcher.start()));
-			String repl = (String) argMap.get(match.subSequence(1, match.length() - 1));
+			if(isUniquote(match)) {
+				repl = match.substring(2, match.length() - 2);
+			} else {
+				repl = (String) argMap.get(match.subSequence(1, match.length() - 1));
+			}
 			
 			if (repl != null) {
 				outBuf.append(repl);
@@ -445,13 +453,27 @@ public class RpcMessage {
 			
 			while (pcMatcher.find()) {
 				String pcMatch = pcMatcher.group();
-				String repl = (String) map.get(pcMatch.subSequence(1, pcMatch.length() - 1));
+				if(isUniquote(pcMatch)) {
+					return true;
+				}
 				
-				if (repl != null) {
+				String repl = (String) map.get(
+				        pcMatch.subSequence(1, pcMatch.length() - 1));
+				
+				if (repl != null && repl.length() > 0) {
 					return true;
 				}
 			}
 		}
 		return false;
+	}
+	
+	private static boolean isUniquote(String str) {
+		// Handle non-translated literals.
+		// These look like %'value'% and the %' and '% should just be removed
+		return  str != null &&
+			str.length() >= 4 &&
+			str.charAt(1) == '\''&&
+			str.charAt(str.length() - 2) == '\'';
 	}
 }

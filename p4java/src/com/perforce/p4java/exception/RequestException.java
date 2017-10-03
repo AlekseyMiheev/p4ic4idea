@@ -58,17 +58,15 @@ public class RequestException extends P4JavaException {
 		this.severityCode = severityCode;
 	}
 
-	/** @deprecated should be a different exception */
-	public RequestException(String message) {
-		super(message);
-	}
+	// @deprecated should be a different exception
+	// public RequestException(String message) {
+	//	super(message);
+	//}
 
-	/**
-	 * @deprecated should be a different exception
-	 */
-	public RequestException(String message, Throwable cause) {
-		super(message, cause);
-	}
+	//@Deprecated
+	//public RequestException(String message, Throwable cause) {
+	//	super(message, cause);
+	//}
 
 	/*
 
@@ -81,6 +79,23 @@ public class RequestException extends P4JavaException {
 		setCodes(rawCode);
 	}
 
+	public RequestException(String message, String codeString) {
+		super(message);
+		if (codeString != null) {
+			try {
+				setCodes(new Integer(codeString));
+			} catch (Exception exc) {
+				Log.exception(exc);
+			}
+		}
+	}
+	
+	public RequestException(String message, int genericCode, int severityCode) {
+		super(message);
+		this.genericCode = genericCode;
+		this.severityCode = severityCode;
+	}
+	
 	public RequestException(Throwable cause, int genericCode, int severityCode) {
 		super(cause);
 		this.genericCode = genericCode;
@@ -135,6 +150,15 @@ public class RequestException extends P4JavaException {
 		return this;
 	}
 
+	public void setSeverityCode(int severityCode) {
+		this.severityCode = severityCode;
+	}
+
+
+	public void setGenericCode(int genericCode) {
+		this.genericCode = genericCode;
+	}
+	
 	public String getDisplayString() {
 		return "" + (this.genericCode != 0 ? "Generic: " + this.genericCode : "")
 				+ (this.severityCode != 0 ? " Severity: " + this.severityCode + "; " : "")

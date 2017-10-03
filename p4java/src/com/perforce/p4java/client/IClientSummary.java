@@ -12,7 +12,7 @@ import java.util.List;
  * Lightweight Perforce client interface that defines summary client
  * metadata and associated operations, without providing client
  * views or actual client-related operations. Corresponds closely to
- * the information returned by a "p4 clients" command.<p>
+ * the information retruned by a "p4 clients" command.<p>
  * 
  * Lightweight IClientSummary objects are typically returned from client list
  * operations such as IServer.getClientList; further use of these specs for
@@ -383,4 +383,18 @@ public interface IClientSummary extends IServerResource {
 	 * @return true iff the client is unloaded.
 	 */
 	boolean isUnloaded();
+
+	/**
+	 * Get the client workspace type 'graph' for Graph support
+	 *
+	 * @return String representation of the type
+	 */
+	String getType();
+
+	/**
+	 * Set the client workspace type 'graph' for Graph support
+	 *
+	 * @param type the type as a String
+	 */
+	void setType(String type);
 }

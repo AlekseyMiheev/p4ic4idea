@@ -3,11 +3,11 @@
  */
 package com.perforce.p4java.impl.mapbased.rpc.func;
 
+import com.perforce.p4java.exception.NullPointerError;
+import com.perforce.p4java.exception.P4JavaError;
+
 import java.util.EnumMap;
 import java.util.HashMap;
-
-import com.perforce.p4java.exception.P4JavaError;
-import com.perforce.p4java.exception.NullPointerError;
 
 /**
  * General Perforce RPC function utilities and definitions.<p>
@@ -159,6 +159,11 @@ public class RpcFunction {
 		new RpcFunctionMetadata(RpcFunctionSpec.USER_TRIGGERS, RpcFunctionType.USER, "user-triggers"),
 		new RpcFunctionMetadata(RpcFunctionSpec.USER_VERIFY, RpcFunctionType.USER, "user-verify"),
 		new RpcFunctionMetadata(RpcFunctionSpec.USER_RENAMEUSER, RpcFunctionType.USER, "user-renameuser"),
+		new RpcFunctionMetadata(RpcFunctionSpec.USER_GRAPH, RpcFunctionType.USER, "user-graph"),
+		new RpcFunctionMetadata(RpcFunctionSpec.USER_REPOS, RpcFunctionType.USER, "user-repos"),
+		new RpcFunctionMetadata(RpcFunctionSpec.USER_TRANSMIT, RpcFunctionType.USER, "user-transmit"),
+		new RpcFunctionMetadata(RpcFunctionSpec.USER_LIST, RpcFunctionType.USER, "user-list"),
+		new RpcFunctionMetadata(RpcFunctionSpec.USER_RETYPE, RpcFunctionType.USER, "user-retype"),
 		
 		new RpcFunctionMetadata(RpcFunctionSpec.CLIENT_MESSAGE, RpcFunctionType.CLIENT, "client-Message"),
 		new RpcFunctionMetadata(RpcFunctionSpec.CLIENT_FSTATINFO, RpcFunctionType.CLIENT, "client-FstatInfo"),
@@ -168,7 +173,7 @@ public class RpcFunction {
 		new RpcFunctionMetadata(RpcFunctionSpec.CLIENT_ACK, RpcFunctionType.CLIENT, "client-Ack"),
 		new RpcFunctionMetadata(RpcFunctionSpec.CLIENT_CHMODFILE, RpcFunctionType.CLIENT, "client-ChmodFile"),
 		new RpcFunctionMetadata(RpcFunctionSpec.CLIENT_OPENFILE, RpcFunctionType.CLIENT, "client-OpenFile"),
-		new RpcFunctionMetadata(RpcFunctionSpec.CLIENT_OPENDIFF, RpcFunctionType.CLIENT, "client-OpenDiff"),
+		//new RpcFunctionMetadata(RpcFunctionSpec.CLIENT_OPENDIFF, RpcFunctionType.CLIENT, "client-OpenDiff"),
 		new RpcFunctionMetadata(RpcFunctionSpec.CLIENT_WRITEFILE, RpcFunctionType.CLIENT, "client-WriteFile"),
 		new RpcFunctionMetadata(RpcFunctionSpec.CLIENT_CLOSEFILE, RpcFunctionType.CLIENT, "client-CloseFile"),
 		new RpcFunctionMetadata(RpcFunctionSpec.CLIENT_CHECKFILE, RpcFunctionType.CLIENT, "client-CheckFile"),
@@ -190,6 +195,7 @@ public class RpcFunction {
 		new RpcFunctionMetadata(RpcFunctionSpec.CLIENT_RECONCILEADD, RpcFunctionType.CLIENT, "client-ReconcileAdd"),
 		new RpcFunctionMetadata(RpcFunctionSpec.CLIENT_RECONCILEFLUSH, RpcFunctionType.CLIENT, "client-ReconcileFlush"),
 		new RpcFunctionMetadata(RpcFunctionSpec.CLIENT_PROGRESS, RpcFunctionType.CLIENT, "client-Progress"),
+		new RpcFunctionMetadata(RpcFunctionSpec.CLIENT_RECEIVEFILES, RpcFunctionType.CLIENT, "client-ReceiveFiles"),
 		
 		new RpcFunctionMetadata(RpcFunctionSpec.CLIENT_DM_PROMPT, RpcFunctionType.CLIENT_DM, "dm-Prompt"),
 		new RpcFunctionMetadata(RpcFunctionSpec.CLIENT_DM_OPENFILE, RpcFunctionType.CLIENT_DM, "dm-OpenFile"),

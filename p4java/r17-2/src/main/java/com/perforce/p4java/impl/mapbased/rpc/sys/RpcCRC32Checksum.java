@@ -15,14 +15,14 @@ import java.util.zip.CRC32;
  */
 public class RpcCRC32Checksum extends CRC32 {
 
-    private com.jcraft.jzlib.CRC32 jcrc32;
+    private com.perforce.jcraft.jzlib.CRC32 jcrc32;
     
     /**
      * Creates a new RpcCRC32Checksum object.
      */
     public RpcCRC32Checksum() {
     	super();
-    	jcrc32 = new com.jcraft.jzlib.CRC32();
+    	jcrc32 = new com.perforce.jcraft.jzlib.CRC32();
     }
 
     /**

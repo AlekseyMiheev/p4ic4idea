@@ -30,8 +30,17 @@ import com.perforce.p4java.exception.RequestException;
  */
 
 public interface IJob extends IServerResource {
-	
+
+	/**
+	 * get job name
+	 * @return job name
+	 */
 	String getId();
+
+	/**
+	 * set job name
+	 * @param id
+	 */
 	void setId(String id);
 	
 	String getDescription();

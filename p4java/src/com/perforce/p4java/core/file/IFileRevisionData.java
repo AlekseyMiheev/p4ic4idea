@@ -70,5 +70,8 @@ public interface IFileRevisionData {
 	 * @return potentially null or empty list of revision integration data
 	 * 			for this specific revision.
 	 */
+	List<IRevisionIntegrationData> getRevisionIntegrationDataList();
+
+	@Deprecated
 	List<IRevisionIntegrationData> getRevisionIntegrationData();
 }

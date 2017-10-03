@@ -101,8 +101,13 @@ public enum CmdSpec {
 	JOURNALWAIT,
 	TRIGGERS,
 	VERIFY,
-	RENAMEUSER;
-	
+	RENAMEUSER,
+	GRAPH,
+	REPOS,
+	TRANSMIT,
+	LIST,
+	RETYPE;
+
 	/**
 	 * Return true iff the passed-in string can be decoded as a valid
 	 * P4CJCmdSpec. Matching is done case-regardless, and some leeway is

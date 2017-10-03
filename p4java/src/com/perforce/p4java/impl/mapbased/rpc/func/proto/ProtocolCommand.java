@@ -29,10 +29,12 @@ public class ProtocolCommand {
 	public static final String RPC_ARGNAME_PROTOCOL_RECVBUFSIZE = "rcvbuf";
 	public static final String RPC_ARGNAME_PROTOCOL_ZTAGS = "tag";
 	public static final String RPC_ARGNAME_PROTOCOL_ENABLE_STREAMS = "enableStreams";
+	public static final String RPC_ARGNAME_PROTOCOL_ENABLE_GRAPH = "enableGraph";
 	public static final String RPC_ARGNAME_PROTOCOL_ENABLE_TRACKING = "track";
 	public static final String RPC_ARGNAME_PROTOCOL_ENABLE_PROGRESS = "progress";
 	public static final String RPC_ARGNAME_PROTOCOL_HOST = "host"; // P4HOST
 	public static final String RPC_ARGNAME_PROTOCOL_PORT = "port"; // P4PORT
+	public static final String RPC_ARGNAME_PROTOCOL_IPADDR = "ipaddr";
 
 	private int clientApiLevel = -1;	// Client API level; determines client-side capabilities
 	private boolean clientCmpFile = false;	// True if the client can do file compares
@@ -42,10 +44,12 @@ public class ProtocolCommand {
 	private int recvBufSize = 0;	// Socket receive buf size (ditto)
 	private String host = null;  // P4HOST
 	private String port = null;  // P4PORT
+	private String ipaddr = null;
 
 	// These values are set elsewhere
 	private boolean useTags = false;	// Use tagged output a la p4's -ztag option
-	private boolean enableStreams = false;	// True if the client is capable of handling streams
+	private boolean enableStreams = true;	// True if the client is capable of handling streams
+	private boolean enableGraph = false; // True if the client is capable of handling graph
 	private boolean enableTracking = false;	// True if enabling tracking for individual commands (-Ztrack option)
 	private boolean enableProgress = false;	// True if enabling progress indicator report for a command (-I option)
 	private boolean quietMode = false;	// True to suppress ALL info-level output. (-q option)
@@ -66,7 +70,7 @@ public class ProtocolCommand {
 	
 	public ProtocolCommand(int clientApiLevel, boolean clientCmpFile,
 							int serverApiLevel, int sendBufSize, int recvBufSize,
-							boolean useTags, boolean enableStreams) {
+							boolean useTags, boolean enableStreams, boolean enableGraph) {
 		this.clientApiLevel = clientApiLevel;
 		this.clientCmpFile = clientCmpFile;
 		this.serverApiLevel = serverApiLevel;
@@ -74,6 +78,7 @@ public class ProtocolCommand {
 		this.recvBufSize = recvBufSize;
 		this.useTags = useTags;
 		this.enableStreams = enableStreams;
+		this.enableGraph = enableGraph;
 	}
 
 	public Map<String, Object> asMap() {
@@ -91,9 +96,11 @@ public class ProtocolCommand {
 		if (this.useTags) {
 			valMap.put(RPC_ARGNAME_PROTOCOL_ZTAGS, "");
 		}
-		if (this.enableStreams) {
-			valMap.put(RPC_ARGNAME_PROTOCOL_ENABLE_STREAMS, "");
-		}
+
+		valMap.put(RPC_ARGNAME_PROTOCOL_ENABLE_STREAMS, (this.enableStreams) ? "" : "no");
+
+		valMap.put(RPC_ARGNAME_PROTOCOL_ENABLE_GRAPH, (this.enableGraph) ? "" : "no");
+
 		if (this.enableTracking) {
 			valMap.put(RPC_ARGNAME_PROTOCOL_ENABLE_TRACKING, "");
 		}
@@ -109,6 +116,9 @@ public class ProtocolCommand {
 		}
 		if (this.port != null) {
 			valMap.put(RPC_ARGNAME_PROTOCOL_PORT, port);
+		}
+		if (this.ipaddr != null) {
+			valMap.put(RPC_ARGNAME_PROTOCOL_IPADDR, ipaddr);
 		}
 		return valMap;
 	}
@@ -177,6 +187,14 @@ public class ProtocolCommand {
 		this.enableStreams = enableStreams;
 	}
 
+	public boolean isEnableGraph() {
+		return this.enableGraph;
+	}
+
+	public void setEnableGraph(boolean enableGraph) {
+		this.enableGraph = enableGraph;
+	}
+
 	public boolean isEnableTracking() {
 		return this.enableTracking;
 	}
@@ -215,5 +233,13 @@ public class ProtocolCommand {
 
 	public void setPort(String port) {
 		this.port = port;
+	}
+
+	public String getIpAddr() {
+		return this.ipaddr;
+	}
+
+	public void setIpAddr(String ipaddr) {
+		this.ipaddr = ipaddr;
 	}
 }

@@ -3,11 +3,6 @@
  */
 package com.perforce.p4java.core.file;
 
-import java.io.InputStream;
-import java.util.Date;
-import java.util.List;
-import java.util.Map;
-
 import com.perforce.p4java.exception.AccessException;
 import com.perforce.p4java.exception.ConnectionException;
 import com.perforce.p4java.exception.P4JavaException;
@@ -18,6 +13,11 @@ import com.perforce.p4java.option.server.GetFileAnnotationsOptions;
 import com.perforce.p4java.option.server.GetFileContentsOptions;
 import com.perforce.p4java.option.server.GetRevisionHistoryOptions;
 import com.perforce.p4java.option.server.MoveFileOptions;
+
+import java.io.InputStream;
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Defines the basic set of information and operations on a Perforce file
@@ -414,7 +414,6 @@ public interface IFileSpec extends IFileOperationResult {
 	/**
 	 * Useful alias for getPreferredPathString().
 	 */
-	@Override
 	String toString();
 	
 	// IFileSpec methods:
@@ -732,4 +731,32 @@ public interface IFileSpec extends IFileOperationResult {
 	 */
 	
 	List<IFileSpec> move(IFileSpec toFile, MoveFileOptions opts) throws P4JavaException;
+
+	String getRepoName();
+
+	void setRepoName(String repoName);
+
+	String getSha();
+
+	void setSha(String sha);
+
+	String getBranch();
+
+	void setBranch(String branch);
+
+	String getBlobSha();
+
+	void setBlobSha(String sha);
+
+	String getCommitSha();
+
+	void setCommitSha(String sha);
+
+	String getTreeSha();
+
+	void setTreeSha(String sha);
+
+	List<String> getResolveTypes();
+
+	void setResolveTypes(List<String> types);
 }

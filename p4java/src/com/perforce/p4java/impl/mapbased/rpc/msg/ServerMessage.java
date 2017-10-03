@@ -29,6 +29,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 
+import static com.perforce.p4java.exception.MessageSeverityCode.E_FAILED;
+import static com.perforce.p4java.exception.MessageSeverityCode.E_FATAL;
+import static com.perforce.p4java.exception.MessageSeverityCode.E_INFO;
+import static com.perforce.p4java.util.compat.StringUtils.contains;
+
 public class ServerMessage implements IServerMessage {
     private final ISingleServerMessage[] messages;
     private final ISingleServerMessage highestSeverity;
@@ -125,6 +130,16 @@ public class ServerMessage implements IServerMessage {
     }
 
     @Override
+    public boolean isInfo() {
+        return getSeverity() == E_INFO;
+    }
+
+    @Override
+    public boolean isError() {
+        return getSeverity() == E_FAILED || getSeverity() == E_FATAL;
+    }
+
+    @Override
     public boolean hasMessageFragment(final String fragment) {
         for (ISingleServerMessage msg: messages) {
             if (msg.hasMessageFragment(fragment)) {
@@ -188,7 +203,7 @@ public class ServerMessage implements IServerMessage {
         /** @deprecated only useful in one place */
         public SingleServerMessage(String message) {
             localized = format = message;
-            severity = MessageSeverityCode.E_INFO;
+            severity = E_INFO;
             generic = MessageGenericCode.EV_NONE;
             subSystem = MessageSubsystemCode.ES_CLIENT;
             subCode = 0;
@@ -240,6 +255,16 @@ public class ServerMessage implements IServerMessage {
             return getGeneric() + ":" +
                     getSubSystem() + ":" +
                     getSubCode() + " (" + getUniqueCode() + ")";
+        }
+
+        @Override
+        public boolean isInfo() {
+            return getSeverity() == E_INFO;
+        }
+
+        @Override
+        public boolean isError() {
+            return getSeverity() == E_FAILED || getSeverity() == E_FATAL;
         }
 
         @Override

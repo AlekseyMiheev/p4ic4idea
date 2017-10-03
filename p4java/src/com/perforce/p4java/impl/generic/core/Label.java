@@ -232,7 +232,9 @@ public class Label extends LabelSummary implements ILabel {
 				}
 			}
 
-		} catch (Throwable thr) {
+		// p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+		// } catch (Throwable thr) {
+		} catch (Exception thr) {
 			Log.error("Unexpected exception in Label constructor: "
 							+ thr.getLocalizedMessage());
 			Log.exception(thr);
@@ -301,7 +303,8 @@ public class Label extends LabelSummary implements ILabel {
 						throws ConnectionException, RequestException, AccessException {
 		
 		if (this.server == null) {
-			throw new RequestException("label not associated with any Perforce server");
+			// p4ic4idea: change to API usage error
+			throw new IllegalArgumentException("label not associated with any Perforce server");
 		}
 		
 		return this.server.updateLabel(this);

@@ -6,8 +6,8 @@ package com.perforce.p4java.impl.mapbased.rpc.packet;
 import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 
-import com.perforce.p4java.exception.P4JavaError;
 import com.perforce.p4java.exception.NullPointerError;
+import com.perforce.p4java.exception.P4JavaError;
 import com.perforce.p4java.exception.ProtocolError;
 
 /**

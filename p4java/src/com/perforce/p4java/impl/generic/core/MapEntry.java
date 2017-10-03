@@ -94,7 +94,6 @@ public class MapEntry implements IMapEntry {
 	/**
 	 * @see com.perforce.p4java.core.IMapEntry#getOrder()
 	 */
-	@Override
 	public int getOrder() {
 		return this.order;
 	}
@@ -104,7 +103,6 @@ public class MapEntry implements IMapEntry {
 	 * 
 	 * @see com.perforce.p4java.core.IMapEntry#setOrder(int)
 	 */
-	@Override
 	public void setOrder(int position) {
 		this.order = position;
 	}
@@ -112,7 +110,6 @@ public class MapEntry implements IMapEntry {
 	/**
 	 * @see com.perforce.p4java.core.IMapEntry#getType()
 	 */
-	@Override
 	public EntryType getType() {
 		return type;
 	}
@@ -120,7 +117,6 @@ public class MapEntry implements IMapEntry {
 	/**
 	 * @see com.perforce.p4java.core.IMapEntry#setType(com.perforce.p4java.core.IMapEntry.EntryType)
 	 */
-	@Override
 	public void setType(EntryType type) {
 		this.type = type;
 	}
@@ -128,7 +124,6 @@ public class MapEntry implements IMapEntry {
 	/**
 	 * @see com.perforce.p4java.core.IMapEntry#getLeft()
 	 */
-	@Override
 	public String getLeft() {
 		return getLeft(false);
 	}
@@ -136,7 +131,6 @@ public class MapEntry implements IMapEntry {
 	/**
 	 * @see com.perforce.p4java.core.IMapEntry#getLeft(boolean)
 	 */
-	@Override
 	public String getLeft(boolean quoteBlanks) {
 		if (quoteBlanks && (left != null) && (left.contains(" ") || left.contains("\t"))) {
 			return "\"" + left + "\"";
@@ -147,7 +141,6 @@ public class MapEntry implements IMapEntry {
 	/**
 	 * @see com.perforce.p4java.core.IMapEntry#setLeft(java.lang.String)
 	 */
-	@Override
 	public void setLeft(String left) {
 		this.left = left;
 	}
@@ -155,7 +148,6 @@ public class MapEntry implements IMapEntry {
 	/**
 	 * @see com.perforce.p4java.core.IMapEntry#getRight()
 	 */
-	@Override
 	public String getRight() {
 		return getRight(false);
 	}
@@ -163,7 +155,6 @@ public class MapEntry implements IMapEntry {
 	/**
 	 * @see com.perforce.p4java.core.IMapEntry#getRight(boolean)
 	 */
-	@Override
 	public String getRight(boolean quoteBlanks) {
 		if (quoteBlanks && (right != null) && (right.contains(" ") || right.contains("\t"))) {
 			return "\"" + right + "\"";
@@ -174,7 +165,6 @@ public class MapEntry implements IMapEntry {
 	/**
 	 * @see com.perforce.p4java.core.IMapEntry#setRight(java.lang.String)
 	 */
-	@Override
 	public void setRight(String right) {
 		this.right = right;
 	}
@@ -182,7 +172,6 @@ public class MapEntry implements IMapEntry {
 	/**
 	 * @see com.perforce.p4java.core.IMapEntry#toString(java.lang.String)
 	 */
-	@Override
 	public String toString(String sepString, boolean quoteBlanks) {
 		StringBuilder retVal = new StringBuilder();
 		boolean quoteLeft = false;
@@ -221,7 +210,6 @@ public class MapEntry implements IMapEntry {
 	 * 
 	 * @see java.lang.Object#toString()
 	 */
-	@Override
 	public String toString() {
 		return toString(" ", true);
 	}

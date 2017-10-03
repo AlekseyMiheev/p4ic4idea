@@ -12,7 +12,7 @@ import com.perforce.p4java.server.IServer;
 /**
  * Options class for the IOptionsServer getFileDiffs methods.
  */
-public class GetFileDiffsOptions extends Options {
+public class GetFileDiffsOptions extends Options implements DiffsOptions<GetFileDiffsOptions> {
 
 	/**
 	 * Options: -d[flags], -Od, -q, -t, -u, -dc[n], -du[n], -S[stream], -P[parentStream]

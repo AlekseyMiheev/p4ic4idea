@@ -38,7 +38,7 @@ public class PropertyDefs {
 	 * Short form program version key.
 	 */
 	public static final String PROG_VERSION_KEY_SHORTFORM = "programVersion";
-	
+
 	/**
 	 * Properties key for the calling-program version. Usage is intended to be similar
 	 * to the p4 command lines -zversion flag. If no corresponding property is
@@ -285,6 +285,70 @@ public class PropertyDefs {
 	 */
 	public static final String ENABLE_TRACKING = Metadata.P4JAVA_PROPS_KEY_PREFIX
 													+ ENABLE_TRACKING_SHORT_FORM;
+
+	/**
+	 * Short form of the ENABLE_STREAMS property (below).
+	 *
+	 * @since 2017.1
+	 */
+	public static final String ENABLE_STREAMS_SHORT_FORM = "enableStreams";
+
+	/**
+	 * If the ENABLE_STREAMS property is set (to any value), the server
+	 * enable streams commands.
+	 *
+	 * @since 2017.1
+	 */
+	public static final String ENABLE_STREAMS = Metadata.P4JAVA_PROPS_KEY_PREFIX
+			+ ENABLE_STREAMS_SHORT_FORM;
+
+	/**
+	 * Short form of the ENABLE_ANDMAPS property (below).
+	 *
+	 * @since 2017.1
+	 */
+	public static final String ENABLE_ANDMAPS_SHORT_FORM = "expandAndmaps";
+
+	/**
+	 * If the ENABLE_ANDMAPS property is set (to any value), the server
+	 * expands and maps.
+	 *
+	 * @since 2017.1
+	 */
+	public static final String ENABLE_ANDMAPS = Metadata.P4JAVA_PROPS_KEY_PREFIX
+			+ ENABLE_ANDMAPS_SHORT_FORM;
+
+	/**
+	 * Short form of the ENABLE_GRAPH property (below).
+	 *
+	 * @since 2017.1
+	 */
+	public static final String ENABLE_GRAPH_SHORT_FORM = "enableGraph";
+
+	/**
+	 * If the ENABLE_GRAPH property is set (to any value), the server
+	 * will reply with graph data as required.
+	 *
+	 * @since 2017.1
+	 */
+	public static final String ENABLE_GRAPH = Metadata.P4JAVA_PROPS_KEY_PREFIX
+			+ ENABLE_GRAPH_SHORT_FORM;
+
+	/**
+	 * Short form of the FILESYS_UTF8BOM property (below).
+	 *
+	 * @since 2017.2
+	 */
+	public static final String FILESYS_UTF8BOM_SHORT_FORM = "filesys.utf8bom";
+
+	/**
+	 * FILESYS_UTF8BOM Set to 0 to prevent writing utf8 files BOM, Set to 1 to
+	 * write utf8 files with a BOM, Set to 2 to write utf8 BOM only on Windows.
+	 *
+	 * @since 2017.2
+	 */
+	public static final String FILESYS_UTF8BOM = Metadata.P4JAVA_PROPS_KEY_PREFIX
+			+ FILESYS_UTF8BOM_SHORT_FORM;
 
 	/**
 	 * Short form of the ENABLE_PROGRESS property (below).

@@ -3,14 +3,14 @@
  */
 package com.perforce.p4java.impl.mapbased.rpc.func;
 
-import java.io.UnsupportedEncodingException;
-import java.nio.ByteBuffer;
-
 import com.perforce.p4java.CharsetDefs;
 import com.perforce.p4java.Log;
-import com.perforce.p4java.exception.P4JavaError;
 import com.perforce.p4java.exception.NullPointerError;
+import com.perforce.p4java.exception.P4JavaError;
 import com.perforce.p4java.impl.mapbased.rpc.packet.RpcPacketField;
+
+import java.io.UnsupportedEncodingException;
+import java.nio.ByteBuffer;
 
 /**
  * Defines the various Perforce RPC function names.<p>
@@ -129,40 +129,67 @@ public enum RpcFunctionSpec {
 	USER_TRIGGERS,
 	USER_VERIFY,
 	USER_RENAMEUSER,
+	USER_GRAPH,
+	USER_REPOS,
+	USER_TRANSMIT,
+	USER_LIST,
+	USER_RETYPE,
 
 	// Client functions -- functions the client must process in response
 	// to a server request
 	
-	CLIENT_MESSAGE,
-	CLIENT_FSTATINFO,
-	CLIENT_PROMPT,
-	CLIENT_SETPASSWORD,
-	CLIENT_CRYPTO,
-	CLIENT_ACK,
-	CLIENT_CHMODFILE,
 	CLIENT_OPENFILE,
-	CLIENT_OPENDIFF,
-	CLIENT_WRITEFILE,
-	CLIENT_CLOSEFILE,
-	CLIENT_CHECKFILE,
-	CLIENT_INPUTDATA,
-	CLIENT_SENDFILE,
+	//TODO:     CLIENT_OPENDIFF,
+    //TODO:     CLIENT_OPENMATCH,
+    CLIENT_WRITEFILE,
+    //TODO:     CLIENT_WRITEDIFF,
+    //TODO:     CLIENT_WRITEMATCH,
+    CLIENT_CLOSEFILE,
+    //TODO:     CLIENT_CLOSEDIFF,
+    //TODO:     CLIENT_CLOSEMATCH,
+    //TODO:     CLIENT_ACKMATCH,
+    
 	CLIENT_DELETEFILE,
-	CLIENT_OUTPUTBINARY,
-	CLIENT_OUTPUTERROR,
-	CLIENT_OUTPUTTEXT,
-	CLIENT_OUTPUTDATA,
-	CLIENT_OUTPUTINFO,
+	CLIENT_CHMODFILE,
+    CLIENT_CHECKFILE,
+    //TODO:     CLIENT_CONVERTFILE,
+	CLIENT_RECONCILEEDIT,
 	CLIENT_MOVEFILE,
-	CLIENT_OPENMERGE3,
+	
+    //TODO: 	CLIENT_ACTIONRESOLVE,
+
+    CLIENT_OPENMERGE2,
+    CLIENT_OPENMERGE3,
 	CLIENT_WRITEMERGE,
 	CLIENT_CLOSEMERGE,
-	CLIENT_SSO,
-	CLIENT_OPENMERGE2,
-	CLIENT_RECONCILEEDIT,
+
+    CLIENT_RECEIVEFILES,
+    CLIENT_SENDFILE,
+    //TODO:     CLIENT_EDITDATA,
+	CLIENT_INPUTDATA,
 	CLIENT_RECONCILEADD,
-	CLIENT_RECONCILEFLUSH,
+    CLIENT_RECONCILEFLUSH,
+    //TODO:     CLIENT_EXACTMATCH,
+	
+	CLIENT_PROMPT,
 	CLIENT_PROGRESS,
+    //TODO:     CLIENT_ERRORPAUSE,
+    //TODO:     CLIENT_HANDLEERROR,
+    CLIENT_MESSAGE,
+	CLIENT_OUTPUTERROR,
+	CLIENT_OUTPUTINFO,
+	CLIENT_OUTPUTDATA,
+	CLIENT_OUTPUTTEXT,
+	CLIENT_OUTPUTBINARY,
+    CLIENT_FSTATINFO,
+    //TODO: CLIENT_FSTATPARTIAL,
+
+    //TODO: CLIENT_PING,
+    CLIENT_ACK,
+	
+	CLIENT_CRYPTO,
+	CLIENT_SETPASSWORD,
+	CLIENT_SSO,
 	
 	// Client dm functions, a sub-species of client functions from our
 	// point of view...

@@ -223,7 +223,9 @@ public class StreamIntegrationStatus implements IStreamIntegrationStatus {
 								new Integer((String) map.get("status0"))));
 					}
 				}
-			} catch (Throwable thr) {
+			// p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+			// } catch (Throwable thr) {
+			} catch (Exception thr) {
 				Log.exception(thr);
 			}
 		}

@@ -32,7 +32,7 @@ EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * and contributors of zlib.
  */
 
-package com.jcraft.jzlib;
+package com.perforce.jcraft.jzlib;
 
 public class GZIPException extends java.io.IOException {
   public GZIPException() {

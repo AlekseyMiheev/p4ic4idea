@@ -32,7 +32,7 @@ EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * and contributors of zlib.
  */
 
-package com.jcraft.jzlib;
+package com.perforce.jcraft.jzlib;
 
 interface Checksum {
   void update(byte[] buf, int index, int len);

@@ -87,7 +87,9 @@ public class DiskSpace implements IDiskSpace {
 				if (map.containsKey("fsType")) {
 					this.fileSystemType = (String) map.get("fsType");
 				}
-			} catch (Throwable thr) {
+			// p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+			} catch (Exception thr) {
+			//} catch (Throwable thr) {
 				Log.exception(thr);
 			}
 		}

@@ -76,13 +76,16 @@ public class Property implements IProperty {
 					this.time = new Long((String) map.get("time"));
 				}
 				if (map.containsKey("modified")) {
-		            DateFormat df = new SimpleDateFormat(DATE_PATTERN);
-		            this.modified = df.parse((String) map.get("modified"));
+					DateFormat df = new SimpleDateFormat(DATE_PATTERN);
+					this.modified = df.parse((String) map.get("modified"));
 				}
 				if (map.containsKey("modifiedBy")) {
 					this.modifiedBy = (String) map.get("modifiedBy");
 				}
-			} catch (Throwable thr) {
+
+			// p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+			//} catch (Throwable thr) {
+			} catch (Exception thr) {
 				Log.exception(thr);
 			}
 		}

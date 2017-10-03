@@ -7,8 +7,8 @@ import java.util.Date;
 import java.util.Map;
 
 import com.perforce.p4java.Log;
-import com.perforce.p4java.core.IUser;
 import com.perforce.p4java.core.IReviewSubscription;
+import com.perforce.p4java.core.IUser;
 import com.perforce.p4java.core.ViewMap;
 import com.perforce.p4java.exception.AccessException;
 import com.perforce.p4java.exception.ConnectionException;
@@ -101,7 +101,9 @@ public class User extends UserSummary implements IUser {
 					this.reviewSubscriptions.addEntry(
 							new ReviewSubscription(i, (String) map.get(REVIEW_KEY_PFX + i)));
 				}
-			} catch (Throwable thr) {
+			// p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+			// } catch (Throwable thr) {
+			} catch (Exception thr) {
 				Log.error("Unexpected exception in User constructor: "
 						+ thr.getLocalizedMessage());
 				Log.exception(thr);

@@ -3,8 +3,19 @@
  */
 package com.perforce.p4java.impl.mapbased.rpc.packet;
 
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.concurrent.CopyOnWriteArrayList;
+
 import com.perforce.p4java.Log;
-import com.perforce.p4java.exception.*;
+import com.perforce.p4java.exception.AccessException;
+import com.perforce.p4java.exception.ConnectionException;
+import com.perforce.p4java.exception.ConnectionNotConnectedException;
+import com.perforce.p4java.exception.NullPointerError;
+import com.perforce.p4java.exception.ProtocolError;
+import com.perforce.p4java.exception.UnimplementedError;
 import com.perforce.p4java.impl.mapbased.rpc.CommandEnv;
 import com.perforce.p4java.impl.mapbased.rpc.RpcServer;
 import com.perforce.p4java.impl.mapbased.rpc.connection.RpcConnection;
@@ -12,8 +23,6 @@ import com.perforce.p4java.impl.mapbased.rpc.func.RpcFunctionSpec;
 import com.perforce.p4java.impl.mapbased.rpc.func.client.ClientFunctionDispatcher;
 import com.perforce.p4java.impl.mapbased.rpc.func.proto.FlowControl;
 import com.perforce.p4java.impl.mapbased.rpc.func.proto.ProtocolFunctionDispatcher;
-
-import java.util.*;
 
 /**
  * Top-level client-side packet dispatcher. Responsible for dispatching
@@ -104,7 +113,7 @@ public class RpcPacketDispatcher {
 		int cmdCallBackKey = cmdEnv.getCmdCallBackKey();
 		RpcConnection rpcConnection = cmdEnv.getRpcConnection();
 		
-		List<Map<String, Object>> resultMaps = Collections.synchronizedList(new ArrayList<Map<String, Object>>());
+		List<Map<String, Object>> resultMaps = new CopyOnWriteArrayList<Map<String, Object>>(new LinkedList<Map<String, Object>>());
 		cmdEnv.setResultMaps(resultMaps);
 		
 		try {

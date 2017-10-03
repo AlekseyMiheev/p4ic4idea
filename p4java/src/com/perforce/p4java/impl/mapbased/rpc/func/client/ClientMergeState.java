@@ -9,6 +9,8 @@ import java.nio.charset.Charset;
 
 import com.perforce.p4java.CharsetDefs;
 import com.perforce.p4java.Log;
+import com.perforce.p4java.exception.FileDecoderException;
+import com.perforce.p4java.exception.FileEncoderException;
 import com.perforce.p4java.exception.NullPointerError;
 import com.perforce.p4java.impl.mapbased.rpc.func.client.ClientMerge.ResolveChoice;
 import com.perforce.p4java.impl.mapbased.rpc.func.helper.MD5Digester;
@@ -141,7 +143,7 @@ public class ClientMergeState {
 																			isUnicodeServer, false);
 	}
 	
-	protected void writeMarker(String markerString) throws IOException {
+	protected void writeMarker(String markerString) throws IOException, FileDecoderException, FileEncoderException {
 		if (checkStream(resultTmpFileStream)) {
 			// Convert the marker to UTF-8 since writeConverted assumes a UTF-8
 			// to local charset conversion
@@ -152,7 +154,7 @@ public class ClientMergeState {
 		}
 	}
 	
-	protected void writeBaseChunk(byte[] bytes) throws IOException {
+	protected void writeBaseChunk(byte[] bytes) throws IOException, FileDecoderException, FileEncoderException {
 		if (checkStream(baseTmpFileStream)) {
 			baseTmpFileStream.writeConverted(bytes);
 		} else {
@@ -160,7 +162,7 @@ public class ClientMergeState {
 		}
 	}
 	
-	protected void writeTheirChunk(byte[] bytes) throws IOException {
+	protected void writeTheirChunk(byte[] bytes) throws IOException, FileDecoderException, FileEncoderException {
 		if (checkStream(theirTmpFileStream)) {
 			theirTmpFileStream.writeConverted(bytes);
 		} else {
@@ -172,7 +174,7 @@ public class ClientMergeState {
 		// We don't need to write anything.
 	}
 	
-	protected void writeResultChunk(byte[] bytes) throws IOException {
+	protected void writeResultChunk(byte[] bytes) throws IOException, FileDecoderException, FileEncoderException {
 		if (checkStream(resultTmpFileStream)) {
 			resultTmpFileStream.writeConverted(bytes);
 		} else {
@@ -226,7 +228,9 @@ public class ClientMergeState {
 				if (this.baseTmpFile != null) this.baseTmpFile.delete();
 				if (this.theirTmpFile != null) this.theirTmpFile.delete();
 				if (this.resultTmpFile != null) this.resultTmpFile.delete();
-			} catch (Throwable thr) {
+			// p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+			// } catch (Throwable thr) {
+			} catch (Exception thr) {
 				Log.warn("unexpected exception in closeMerge: " + thr.getLocalizedMessage());
 				Log.exception(thr);
 			}

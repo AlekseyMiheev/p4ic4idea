@@ -69,7 +69,9 @@ public class FileAnnotation implements IFileAnnotation {
 				this.lineEnd = lineEnd;
 				this.line = (String) map.get("data");
 				handleLineEnding();
-			} catch (Throwable thr) {
+			// p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+			// } catch (Throwable thr) {
+			} catch (Exception thr) {
 				Log.warn("bad conversion in FileAnnotation constructor; map: " + map);
 				Log.exception(thr);
 			}

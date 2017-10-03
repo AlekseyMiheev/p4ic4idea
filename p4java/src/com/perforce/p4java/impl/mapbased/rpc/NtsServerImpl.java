@@ -1,10 +1,17 @@
 /**
- *
+ * 
  */
 package com.perforce.p4java.impl.mapbased.rpc;
 
 import com.perforce.p4java.Log;
-import com.perforce.p4java.exception.*;
+import com.perforce.p4java.exception.AccessException;
+import com.perforce.p4java.exception.ConfigException;
+import com.perforce.p4java.exception.ConnectionException;
+import com.perforce.p4java.exception.ConnectionNotConnectedException;
+import com.perforce.p4java.exception.NullPointerError;
+import com.perforce.p4java.exception.P4JavaError;
+import com.perforce.p4java.exception.P4JavaException;
+import com.perforce.p4java.exception.RequestException;
 import com.perforce.p4java.impl.generic.client.ClientLineEnding;
 import com.perforce.p4java.impl.generic.core.TempFileInputStream;
 import com.perforce.p4java.impl.mapbased.rpc.connection.RpcConnection;
@@ -15,19 +22,26 @@ import com.perforce.p4java.impl.mapbased.rpc.packet.RpcPacket;
 import com.perforce.p4java.impl.mapbased.rpc.packet.RpcPacketDispatcher;
 import com.perforce.p4java.impl.mapbased.rpc.stream.RpcStreamConnection;
 import com.perforce.p4java.impl.mapbased.rpc.sys.RpcOutputStream;
+import com.perforce.p4java.impl.mapbased.server.ServerAddressBuilder;
 import com.perforce.p4java.option.UsageOptions;
 import com.perforce.p4java.server.CmdSpec;
+import com.perforce.p4java.server.IServerAddress;
 import com.perforce.p4java.server.IServerAddress.Protocol;
 import com.perforce.p4java.server.IServerMessage;
 import com.perforce.p4java.server.ServerStatus;
 import com.perforce.p4java.server.callback.IFilterCallback;
+import com.perforce.p4java.server.callback.IParallelCallback;
 import com.perforce.p4java.server.callback.IStreamingCallback;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.BufferOverflowException;
 import java.nio.charset.UnsupportedCharsetException;
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Properties;
 
 /**
  * NTS (non-thread-safe) version of the P4Java RPC implementation.<p>
@@ -49,20 +63,20 @@ public class NtsServerImpl extends RpcServer {
 	 * The short-form name (display name) of this implementation.
 	 */
 	public static final String SCREEN_NAME = "Native RPC (Experimental)";
-
+	
 	/**
 	 * Implementation-specific comments (dependencies, limitations, etc.).
 	 */
 	public static final String IMPL_COMMENTS
-			= "Experimental Java-native RPC standalone P4Java implementation."
-			+ " Requires JDK 6 or later, full Java NIO support, and "
-			+ "external thread synchronization. Not for the faint-hearted.";
-
+					= "Experimental Java-native RPC standalone P4Java implementation."
+					+ " Requires JDK 6 or later, full Java NIO support, and "
+					+ "external thread synchronization. Not for the faint-hearted.";
+	
 	/**
 	 * The specific protocol name to be used in URIs for this implementation.
 	 */
 	public static final String PROTOCOL_NAME = Protocol.P4JRPCNTS.toString();
-
+	
 	/**
 	 * The specific SSL protocol name to be used in URIs for this implementation.
 	 */
@@ -72,7 +86,7 @@ public class NtsServerImpl extends RpcServer {
 	 * The minimum Perforce server level required by this implementation.
 	 */
 	public static final int MINIMUM_SUPPORTED_SERVER_LEVEL = 20052;
-
+	
 	/**
 	 * True IFF this is the default implementation. There must be only one of
 	 * these...
@@ -83,57 +97,57 @@ public class NtsServerImpl extends RpcServer {
 	 * What we use as a P4JTracer trace prefix for methods here.
 	 */
 	public static final String TRACE_PREFIX = "NtsServerImpl";
-
+	
 	private boolean currentUseTags = true;
 	private boolean haveSentProtocolSpecs = false;
 	protected ProtocolCommand protocolSpecs = null;
-
+	
 	protected RpcPacketDispatcher dispatcher = null;
 	protected RpcConnection rpcConnection = null;
-
+	
 	/**
 	 * Initialize the server. Basically defers to the superclass after setting
 	 * up the required server version.
-	 *
+	 * 
 	 * @see com.perforce.p4java.impl.mapbased.rpc.RpcServer#init(java.lang.String, int, java.util.Properties, com.perforce.p4java.option.UsageOptions, boolean)
 	 */
 
 	public ServerStatus init(String host, int port, Properties props, UsageOptions opts,
-			boolean secure, String rsh) throws ConfigException, ConnectionException {
+				boolean secure, String rsh) throws ConfigException, ConnectionException {
 		super.init(host, port, props, opts, secure);
-		super.minumumSupportedServerVersion = MINIMUM_SUPPORTED_SERVER_LEVEL;
+		super.minimumSupportedServerVersion = MINIMUM_SUPPORTED_SERVER_LEVEL;
 		this.rsh = rsh;
 		return status;
 	}
 
 	/**
 	 * Shorthand for the options-based init() above, but with a fasle secure arg.
-	 *
+	 * 
 	 * @see com.perforce.p4java.impl.mapbased.rpc.RpcServer#init(java.lang.String, int, java.util.Properties, com.perforce.p4java.option.UsageOptions, boolean)
 	 */
 
-	public ServerStatus init(String host, int port, Properties props, UsageOptions opts,
-			boolean secure) throws ConfigException, ConnectionException {
-		return this.init(host, port, props, opts, secure, null);
+	public ServerStatus init(String host, int port, Properties properties, UsageOptions opts,
+                             boolean secure) throws ConfigException, ConnectionException {
+		return this.init(host, port, properties, opts, secure, null);
 	}
-
+	
 	/**
 	 * Shorthand for the options-based init() above, but with a fasle secure arg.
-	 *
+	 * 
 	 * @see com.perforce.p4java.impl.mapbased.rpc.RpcServer#init(java.lang.String, int, java.util.Properties, com.perforce.p4java.option.UsageOptions)
 	 */
 	public ServerStatus init(String host, int port, Properties props, UsageOptions opts)
-			throws ConfigException, ConnectionException {
+				throws ConfigException, ConnectionException {
 		return this.init(host, port, props, opts, false);
 	}
 
 	/**
 	 * Shorthand for the options-based init() above, but with a null opts arg.
-	 *
+	 * 
 	 * @see com.perforce.p4java.impl.mapbased.rpc.RpcServer#init(java.lang.String, int, java.util.Properties)
 	 */
 	public ServerStatus init(String host, int port, Properties props)
-			throws ConfigException, ConnectionException {
+				throws ConfigException, ConnectionException {
 		return this.init(host, port, props, null);
 	}
 
@@ -142,46 +156,46 @@ public class NtsServerImpl extends RpcServer {
 	 * Most of the actual setup work is done in the RpcConnection and
 	 * RpcPacketDispatcher constructors, but associated gubbins such as
 	 * auto login, etc., are done in the superclass.
-	 *
+	 * 
 	 * @see com.perforce.p4java.impl.mapbased.server.Server#connect()
 	 */
-
+	
 	public void connect() throws ConnectionException,
-			AccessException, RequestException, ConfigException {
+								AccessException, RequestException, ConfigException {
 		this.rpcConnection = new RpcStreamConnection(serverHost, serverPort, props,
-				this.serverStats, this.charset, null, null,
-				this.secure, this.rsh);
+												this.serverStats, this.charset, null, null,
+												this.secure, this.rsh);
 		this.dispatcher = new RpcPacketDispatcher(props, this);
-
+				
 		Log.info("RPC connection to Perforce server "
 				+ serverHost + ":" + serverPort + " established");
-
+		
 		super.connect();
 	}
-
+	
 	/**
 	 * Try to cleanly disconnect from the Perforce server at the other end
 	 * of the current connection (with the emphasis on "cleanly"). This
 	 * should theoretically include sending a release2 message, but we
 	 * don't always get the chance to do that.
-	 *
+	 * 
 	 * @see com.perforce.p4java.impl.mapbased.server.Server#disconnect()
 	 */
 	public void disconnect() throws ConnectionException,
-			AccessException {
+											AccessException {
 		Log.info("Disconnected RPC connection to Perforce server "
-				+ this.serverHost + ":" + this.serverPort);
-
+							+ this.serverHost + ":" + this.serverPort);
+		
 		this.dispatcher.shutdown(this.rpcConnection);
 		this.rpcConnection.disconnect(this.dispatcher);
 		this.haveSentProtocolSpecs = false;
 		this.protocolSpecs = null;
 		super.disconnect();
 	}
-
+	
 	/**
 	 * Need to override this method at this level as we keep the connection open here...
-	 *
+	 * 
 	 * @see com.perforce.p4java.impl.mapbased.server.Server#setCharsetName(java.lang.String)
 	 */
 	public boolean setCharsetName(String charsetName) throws UnsupportedCharsetException {
@@ -189,7 +203,7 @@ public class NtsServerImpl extends RpcServer {
 		this.rpcConnection.setClientCharset(this.charset);
 		return retVal;
 	}
-
+	
 	/**
 	 * @see com.perforce.p4java.impl.mapbased.server.Server#execMapCmd(java.lang.String, java.lang.String[], java.util.Map)
 	 */
@@ -205,8 +219,8 @@ public class NtsServerImpl extends RpcServer {
 	 */
 	@Override
 	public List<Map<String, Object>> execMapCmdList(String cmdName, String[] cmdArgs,
-			Map<String, Object> inMap) throws P4JavaException {
-		return this.execMapCmdList(cmdName, cmdArgs, inMap, null, false, null, 0, null);
+			Map<String, Object> inMap) throws ConnectionException, AccessException, RequestException {
+		return this.execMapCmdList(cmdName, cmdArgs, inMap, null, false, null, 0, null, null);
 	}
 
 	/**
@@ -215,7 +229,7 @@ public class NtsServerImpl extends RpcServer {
 	@Override
 	public List<Map<String, Object>> execMapCmdList(String cmdName, String[] cmdArgs,
 			Map<String, Object> inMap, IFilterCallback filterCallback) throws P4JavaException {
-		return this.execMapCmdList(cmdName, cmdArgs, inMap, null, false, null, 0, filterCallback);
+		return this.execMapCmdList(cmdName, cmdArgs, inMap, null, false, null, 0, filterCallback, null);
 	}
 
 	/**
@@ -228,16 +242,16 @@ public class NtsServerImpl extends RpcServer {
 			AccessException {
 		return this.execMapCmd(cmdName, cmdArgs, inMap, null, true, null, 0, null);
 	}
-
+	
 	/**
 	 * @see com.perforce.p4java.impl.mapbased.server.Server#execQuietMapCmdList(java.lang.String, java.lang.String[], java.util.Map)
 	 */
 	@Override
 	public List<Map<String, Object>> execQuietMapCmdList(String cmdName,
 			String[] cmdArgs, Map<String, Object> inMap) throws P4JavaException {
-		return this.execMapCmdList(cmdName, cmdArgs, inMap, null, true, null, 0, null);
+		return this.execMapCmdList(cmdName, cmdArgs, inMap, null, true, null, 0, null, null);
 	}
-
+	
 	/**
 	 * @see com.perforce.p4java.impl.mapbased.server.Server#execInputStringMapCmd(java.lang.String, java.lang.String[], java.lang.String)
 	 */
@@ -251,22 +265,28 @@ public class NtsServerImpl extends RpcServer {
 	 */
 	public List<Map<String, Object>> execInputStringMapCmdList(String cmdName,
 			String[] cmdArgs, String inString) throws P4JavaException {
-		return this.execMapCmdList(cmdName, cmdArgs, null, inString, true, null, 0, null);
+		return this.execMapCmdList(cmdName, cmdArgs, null, inString, true, null, 0, null, null);
 	}
-
+	
 	/**
 	 * @see com.perforce.p4java.impl.mapbased.server.Server#execInputStringMapCmdList(java.lang.String, java.lang.String[], java.lang.String, com.perforce.p4java.server.callback.IFilterCallback)
 	 */
 	public List<Map<String, Object>> execInputStringMapCmdList(String cmdName,
 			String[] cmdArgs, String inString, IFilterCallback filterCallback) throws P4JavaException {
-		return this.execMapCmdList(cmdName, cmdArgs, null, inString, true, null, 0, filterCallback);
+		return this.execMapCmdList(cmdName, cmdArgs, null, inString, true, null, 0, filterCallback, null);
 	}
 
+	@Override
+	public List<Map<String, Object>> execMapCmdList(String cmdName, String[] cmdArgs, IFilterCallback filterCallback,
+			IParallelCallback parallelCallback) throws P4JavaException {
+		return this.execMapCmdList(cmdName, cmdArgs, null, null, true, null, 0, filterCallback, parallelCallback);
+	}
+	
 	/**
 	 * @see com.perforce.p4java.impl.mapbased.server.Server#execInputStringStreamingMapComd(java.lang.String, java.lang.String[], java.lang.String, com.perforce.p4java.server.callback.IStreamingCallback, int)
 	 * 
 	 * @deprecated As of release 2013.1, replaced by {@link #execInputStringStreamingMapCmd(java.lang.String, java.lang.String[], java.lang.String, com.perforce.p4java.server.callback.IStreamingCallback, int)}
-	 */
+ 	 */
 	@Deprecated
 	public void execInputStringStreamingMapComd(String cmdName,
 			String[] cmdArgs, String inString, IStreamingCallback callback,
@@ -276,7 +296,7 @@ public class NtsServerImpl extends RpcServer {
 
 	/**
 	 * @see com.perforce.p4java.impl.mapbased.server.Server#execInputStringStreamingMapCmd(java.lang.String, java.lang.String[], java.lang.String, com.perforce.p4java.server.callback.IStreamingCallback, int)
-	 */
+ 	 */
 	public void execInputStringStreamingMapCmd(String cmdName,
 			String[] cmdArgs, String inString, IStreamingCallback callback,
 			int key) throws P4JavaException {
@@ -287,22 +307,23 @@ public class NtsServerImpl extends RpcServer {
 	protected Map<String, Object>[] execMapCmd(String cmdName,
 			String[] cmdArgs, Map<String, Object> inMap, String inString, boolean ignoreCallbacks,
 			IStreamingCallback callback, int callbackKey, IFilterCallback filterCallback)
-			throws ConnectionException, AccessException, RequestException {
-		List<Map<String, Object>> results = execMapCmdList(cmdName, cmdArgs, inMap, inString, ignoreCallbacks, callback, callbackKey, filterCallback);
+				throws ConnectionException, AccessException, RequestException {
+		List<Map<String, Object>> results = execMapCmdList(cmdName, cmdArgs, inMap, inString, ignoreCallbacks, callback, callbackKey, filterCallback, null);
 		if (results != null) {
 			return results.toArray(new HashMap[results.size()]);
 		}
-
+		
 		return null;
 	}
 
 	protected List<Map<String, Object>> execMapCmdList(String cmdName,
 			String[] cmdArgs, Map<String, Object> inMap, String inString, boolean ignoreCallbacks,
-			IStreamingCallback callback, int callbackKey, IFilterCallback filterCallback)
-			throws ConnectionException, AccessException, RequestException {
-
+			IStreamingCallback callback, int callbackKey, IFilterCallback filterCallback,
+			IParallelCallback parallelCallback)
+				throws ConnectionException, AccessException, RequestException {
+		
 		CommandEnv cmdEnv = null;
-
+		
 		try {
 			int cmdCallBackKey = this.nextCmdCallBackKey.incrementAndGet();
 			long startTime = System.currentTimeMillis();
@@ -311,6 +332,7 @@ public class NtsServerImpl extends RpcServer {
 			}
 			ExternalEnv env = setupCmd(cmdName.toLowerCase(Locale.ENGLISH), cmdArgs, inMap, ignoreCallbacks, cmdCallBackKey, false);
 			cmdEnv = new CommandEnv(
+					this,
 					new RpcCmdSpec(
 							cmdName,
 							cmdArgs,
@@ -330,6 +352,7 @@ public class NtsServerImpl extends RpcServer {
 			cmdEnv.setStreamingCallback(callback);
 			cmdEnv.setStreamingCallbackKey(callbackKey);
 			cmdEnv.setFilterCallback(filterCallback);
+			cmdEnv.setParallelCallback(parallelCallback);
 			if (callback != null) {
 				try {
 					callback.startResults(callbackKey);
@@ -348,30 +371,30 @@ public class NtsServerImpl extends RpcServer {
 					Log.exception(exc);
 				}
 			}
-
+			
 			// Check if currently case sensitive so the map search for the no
 			// case key is only performed when necessary. Once a server is
 			// marked as case insensitive this check will never look at the
 			// server protocol specs map.
 			if (this.caseSensitive
 					&& cmdEnv.getServerProtocolSpecsMap().containsKey(
-					RpcFunctionMapKey.NOCASE)) {
+							RpcFunctionMapKey.NOCASE)) {
 				this.caseSensitive = false;
 			}
 
 			if (!ignoreCallbacks && (this.commandCallback != null)) {
 				this.processCmdCallbacks(cmdCallBackKey, endTime - startTime, resultMaps);
 			}
-
+			
 			// Close RPC output stream
 			RpcOutputStream outStream = (RpcOutputStream) cmdEnv.getStateMap().get(
 					RpcServer.RPC_TMP_OUTFILE_STREAM_KEY);
 			if (outStream != null) {
 				outStream.close();
 			}
-
+			
 			return resultMaps;
-
+			
 		} catch (BufferOverflowException exc) {
 			Log.error("RPC Buffer overflow: " + exc.getLocalizedMessage());
 			Log.exception(exc);
@@ -383,9 +406,7 @@ public class NtsServerImpl extends RpcServer {
 		} catch (IOException ioexc) {
 			Log.error("I/O error encountered in stream command: " + ioexc.getLocalizedMessage());
 			Log.exception(ioexc);
-			throw new RequestException(
-					"I/O error encountered in stream command: "
-							+ ioexc.getLocalizedMessage(), ioexc);
+			throw new RequestException(ioexc);
 		} finally {
 			// Handle user cancelled command
 			if (cmdEnv != null && cmdEnv.isUserCanceled()) {
@@ -402,7 +423,7 @@ public class NtsServerImpl extends RpcServer {
 			}
 		}
 	}
-
+	
 	/**
 	 * @see com.perforce.p4java.impl.mapbased.server.Server#execStreamingMapCommand(java.lang.String, java.lang.String[], java.util.Map, com.perforce.p4java.server.callback.IStreamingCallback, int)
 	 */
@@ -410,10 +431,21 @@ public class NtsServerImpl extends RpcServer {
 			IStreamingCallback callback, int key) throws P4JavaException {
 		if (callback == null) {
 			throw new NullPointerError(
+							"null streaming callback passed to execStreamingMapCommand method");
+		}
+		
+		execMapCmdList(cmdName, cmdArgs, inMap, null, false, callback, key, null, null);
+	}
+
+	@Override
+	public void execStreamingMapCommand(String cmdName, String[] cmdArgs, Map<String, Object> inMap,
+	                                    IStreamingCallback callback, int key, IParallelCallback parallelCallback) throws P4JavaException {
+		if (callback == null) {
+			throw new NullPointerError(
 					"null streaming callback passed to execStreamingMapCommand method");
 		}
 
-		execMapCmdList(cmdName, cmdArgs, inMap, null, false, callback, key, null);
+		execMapCmdList(cmdName, cmdArgs, inMap, null, false, callback, key, null, parallelCallback);
 	}
 
 	/**
@@ -435,7 +467,7 @@ public class NtsServerImpl extends RpcServer {
 			AccessException {
 		return this.execStreamCmd(cmdName, cmdArgs, null, null, false);
 	}
-
+	
 	/**
 	 * @see com.perforce.p4java.impl.mapbased.server.Server#execStreamCmd(java.lang.String, java.lang.String[], java.util.Map)
 	 */
@@ -446,7 +478,7 @@ public class NtsServerImpl extends RpcServer {
 	}
 
 	/**
-	 * @see com.perforce.p4java.impl.mapbased.server.Server#execInputStringStreamCmd(String, String[], String)
+	 * @see com.perforce.p4java.impl.mapbased.server.Server#execInputStringStreamCmd(java.lang.String, java.lang.String[], java.lang.String)
 	 */
 	@Override
 	public InputStream execInputStringStreamCmd(String cmdName, String[] cmdArgs, String inString)
@@ -460,70 +492,63 @@ public class NtsServerImpl extends RpcServer {
 	 * method to take the map array as an output parameter in later releases.
 	 */
 	protected InputStream execStreamCmd(String cmdName, String[] cmdArgs, Map<String, Object> inMap, String inString, boolean ignoreCallbacks)
-			throws ConnectionException, RequestException, AccessException {
+				throws ConnectionException, RequestException, AccessException {
 		if (cmdName == null) {
 			throw new NullPointerError(
 					"Null command name passed to execStreamCmd");
 		}
-
+		
 		if (!this.connected) {
 			throw new ConnectionNotConnectedException(
 					"Not currently connected to a Perforce server");
 		}
-
+		
 		CommandEnv cmdEnv = null;
-
+		
 		try {
 			int cmdCallBackKey = this.nextCmdCallBackKey.incrementAndGet();
 			long startTime = System.currentTimeMillis();
 			if (inMap != null && ClientLineEnding.CONVERT_TEXT) {
 				ClientLineEnding.convertMap(inMap);
 			}
-			ExternalEnv env = setupCmd(cmdName, cmdArgs, inMap, ignoreCallbacks, cmdCallBackKey, true);
+			ExternalEnv env = setupCmd(cmdName,cmdArgs, inMap, ignoreCallbacks, cmdCallBackKey, true);
 			cmdEnv = new CommandEnv(
-					new RpcCmdSpec(
-							cmdName,
-							cmdArgs,
-							getAuthTicket(),
-							inMap,
-							inString,
-							env),
-					this.rpcConnection,
-					this.protocolSpecs,
-					this.serverProtocolMap,
-					this.progressCallback,
-					cmdCallBackKey,
-					writeInPlace(cmdName),
-					this.isNonCheckedSyncs());
+									this,
+									new RpcCmdSpec(
+											cmdName,
+											cmdArgs,
+											getAuthTicket(),
+											inMap,
+											inString,
+											env),
+									this.rpcConnection,
+									this.protocolSpecs,
+									this.serverProtocolMap,
+									this.progressCallback,
+									cmdCallBackKey,
+									writeInPlace(cmdName),
+									this.isNonCheckedSyncs());
 			cmdEnv.setDontWriteTicket(isDontWriteTicket(cmdName.toLowerCase(Locale.ENGLISH), cmdArgs));
 			cmdEnv.setFieldRule(getRpcPacketFieldRule(inMap, CmdSpec.getValidP4JCmdSpec(cmdName)));
 			cmdEnv.setStreamCmd(true);
 
 			List<Map<String, Object>> resultMaps = this.dispatcher.dispatch(cmdEnv);
-
+			
 			long endTime = System.currentTimeMillis();
-
+			
 			if (!ignoreCallbacks && (this.commandCallback != null)) {
 				this.processCmdCallbacks(cmdCallBackKey, endTime - startTime, resultMaps);
 			}
-
+			
 			if ((resultMaps != null) && (resultMaps.size() != 0)) {
 				for (Map<String, Object> map : resultMaps) {
 					if (map != null) {
-						// p4ic4idea: use IServerMessage
-						final IServerMessage errStr = this.getErrorStr(map);
+						IServerMessage errStr = this.getErrorStr(map);
 						if (errStr != null) {
-							// p4ic4idea: more precise errors
-							try {
-								throw createExceptionFromMessage(errStr);
-							} catch (ConnectionException e) {
-								throw e;
-							} catch (RequestException e) {
-								throw e;
-							} catch (AccessException e) {
-								throw e;
-							} catch (P4JavaException e) {
-								throw new RequestException(e);
+							if (isAuthFail(errStr)) {
+								throw new AccessException(errStr);
+							} else {
+								throw new RequestException(errStr);
 							}
 						}
 					}
@@ -532,16 +557,16 @@ public class NtsServerImpl extends RpcServer {
 
 			RpcOutputStream outStream = (RpcOutputStream) cmdEnv.getStateMap().get(
 					RpcServer.RPC_TMP_OUTFILE_STREAM_KEY);
-
+			
 			if (outStream != null) {
 				outStream.close();
 				TempFileInputStream inStream
-						= new TempFileInputStream(outStream.getFile());
+								= new TempFileInputStream(outStream.getFile());
 				return inStream;
 			}
-
+			
 			return null;
-
+			
 		} catch (BufferOverflowException exc) {
 			Log.error("RPC Buffer overflow: " + exc.getLocalizedMessage());
 			Log.exception(exc);
@@ -553,9 +578,7 @@ public class NtsServerImpl extends RpcServer {
 		} catch (IOException ioexc) {
 			Log.error("I/O error encountered in stream command: " + ioexc.getLocalizedMessage());
 			Log.exception(ioexc);
-			throw new RequestException(
-					"I/O error encountered in stream command: "
-							+ ioexc.getLocalizedMessage(), ioexc);
+			throw new RequestException(ioexc);
 		} finally {
 			// Handle user cancelled command
 			if (cmdEnv != null && cmdEnv.isUserCanceled()) {
@@ -572,7 +595,7 @@ public class NtsServerImpl extends RpcServer {
 			}
 		}
 	}
-
+	
 	/**
 	 * Factors out the command setup that's common to stream and map commands.
 	 */
@@ -588,30 +611,31 @@ public class NtsServerImpl extends RpcServer {
 			throw new NullPointerError("Null RPC dispatcher in execMapCmd call");
 		}
 		if (!this.isRelaxCmdNameValidationChecks() && !CmdSpec.isValidP4JCmdSpec(cmdName)) {
-			throw new RequestException("command name '"
+			// p4ic4idea: change to p4 api usage error
+			throw new IllegalStateException("command name '"
 					+ cmdName + "' unimplemented or unrecognized by p4java");
 		}
 
 		// Should use tags?
 		boolean useTags = useTags(cmdName, cmdArgs, inMap, isStream);
-
+		
 		// Check fingerprint
 		checkFingerprint(rpcConnection);
 
 		ExternalEnv env = new ExternalEnv(
-				this.getUsageOptions().getProgramName(),
-				this.getUsageOptions().getProgramVersion(),
-				this.getClientNameForEnv(),
-				this.getUsageOptions().getWorkingDirectory(),
-				this.getHostForEnv(),
-				this.getServerHostPort(),
-				this.getUsageOptions().getTextLanguage(),
-				this.getOsTypeForEnv(),
-				this.getUserForEnv(),
-				this.charsetName != null,
-				this.charset
-		);
-
+					this.getUsageOptions().getProgramName(),
+					this.getUsageOptions().getProgramVersion(),
+					this.getClientNameForEnv(),
+					this.getUsageOptions().getWorkingDirectory(),
+					this.getHostForEnv(),
+					this.getServerHostPort(),
+					this.getUsageOptions().getTextLanguage(),
+					this.getOsTypeForEnv(),
+					this.getUserForEnv(),
+					this.charsetName != null,
+					this.charset
+				);
+		
 		if (!ignoreCallbacks && (this.commandCallback != null)) {
 			StringBuilder cmd = new StringBuilder(cmdName);
 			for (String argStr : cmdArgs) {
@@ -622,9 +646,9 @@ public class NtsServerImpl extends RpcServer {
 			}
 			this.commandCallback.issuingServerCommand(cmdCallBackKey, cmd.toString());
 		}
-
+		
 		RpcPacket protPacket = null;
-
+		
 		// If the "useTags" state had changed from the previous command we must
 		// send the protocol again.
 		if (!this.haveSentProtocolSpecs || (this.currentUseTags != useTags)) {
@@ -638,7 +662,8 @@ public class NtsServerImpl extends RpcServer {
 			this.protocolSpecs.setSendBufSize(rpcConnection.getSystemSendBufferSize());
 			this.protocolSpecs.setRecvBufSize(rpcConnection.getSystemRecvBufferSize());
 			this.protocolSpecs.setUseTags(useTags);
-			this.protocolSpecs.setEnableStreams(true);
+			this.protocolSpecs.setEnableStreams(this.enableStreams);
+			this.protocolSpecs.setEnableGraph(this.enableGraph);
 			this.protocolSpecs.setEnableTracking(this.enableTracking);
 			this.protocolSpecs.setEnableProgress(this.enableProgress);
 			this.protocolSpecs.setQuietMode(this.quietMode);
@@ -647,36 +672,36 @@ public class NtsServerImpl extends RpcServer {
 			protocolSpecs.setPort(env.getPort());
 
 			protPacket = RpcPacket.constructRpcPacket(
-					RpcFunctionSpec.PROTOCOL_PROTOCOL,
-					this.protocolSpecs.asMap(),
-					null);
+									RpcFunctionSpec.PROTOCOL_PROTOCOL,
+									this.protocolSpecs.asMap(),
+									null);
 
 			this.currentUseTags = useTags;
 			this.haveSentProtocolSpecs = true;
 		}
-
+		
 		RpcFunctionSpec name = RpcFunctionSpec.decodeFromEndUserCmd(cmdName,
-				this.isRelaxCmdNameValidationChecks());
-
+									this.isRelaxCmdNameValidationChecks());
+		
 		// For historical reasons, we need to special-case the login command
 		//if (name == RpcFunctionSpec.USER_LOGIN) {
 		//	cmdArgs = new String[] {"-p"};
-		//}
+		//}	
 
 		RpcPacket cmdPacket = RpcPacket.constructRpcPacket(
-				name,
-				cmdName,
-				cmdArgs,
-				env);
+										name,
+										cmdName,
+										cmdArgs,
+										env);
 		// Append the "tag" argument before the function name
 		if (useTags) {
 			cmdPacket.setMapArgs(this.cmdMapArgs);
 		}
 
 		// On each command message sent to the server (i.e. "user-foo")
-		// a variable "progress" should be set to 1 to indicate that
-		// the server should send progress messages to the client if they
-		// are available for that command.
+        // a variable "progress" should be set to 1 to indicate that
+        // the server should send progress messages to the client if they
+        // are available for that command.
 		if (this.enableProgress) {
 			Map<String, Object> valMap = new HashMap<String, Object>();
 			if (cmdPacket.getMapArgs() != null) {
@@ -685,21 +710,42 @@ public class NtsServerImpl extends RpcServer {
 			valMap.put(ProtocolCommand.RPC_ARGNAME_PROTOCOL_ENABLE_PROGRESS, "1");
 			cmdPacket.setMapArgs(valMap);
 		}
-
+		
 		if (protPacket == null) {
 			this.rpcConnection.putRpcPacket(cmdPacket);
 		} else {
-			this.rpcConnection.putRpcPackets(new RpcPacket[]{protPacket, cmdPacket});
+			this.rpcConnection.putRpcPackets(new RpcPacket[] {protPacket, cmdPacket});
 		}
-
+		
 		return env;
 	}
-
+	
 	public RpcConnection getRpcConnection() {
 		return this.rpcConnection;
 	}
 
 	public void setRpcConnection(RpcConnection rpcConnection) {
 		this.rpcConnection = rpcConnection;
+	}
+	
+	/**
+	 * Get server address object
+	 * 
+	 * @return server address object
+	 */
+	public IServerAddress getServerAddressDetails() {
+		ServerAddressBuilder builder = new ServerAddressBuilder();
+		builder.setRsh(rsh);
+		builder.setHost(serverHost);
+		builder.setPort(serverPort);
+		if (rsh != null) {
+			builder.setProtocol(Protocol.P4JRSHNTS);
+		} else if (secure) {
+			builder.setProtocol(Protocol.P4JRPCNTSSSL);
+		} else {
+			builder.setProtocol(Protocol.P4JRPCNTS);
+		}
+		
+		return builder.build();
 	}
 }

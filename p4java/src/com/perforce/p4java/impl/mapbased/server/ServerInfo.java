@@ -8,6 +8,7 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.List;
 import java.util.Map;
 
 import com.perforce.p4java.server.IServerInfo;
@@ -100,7 +101,7 @@ public class ServerInfo implements IServerInfo {
 	 * 
 	 * When a broker is involved, there will be more than one map.
 	 */
-	public ServerInfo(Map<String, Object>[] maps) {
+	public ServerInfo(List<Map<String, Object>> maps) {
 		for (Map<String, Object> map : maps) {
 			setFromMap(map);
 		}

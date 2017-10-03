@@ -86,7 +86,10 @@ public class BranchSpecSummary extends ServerResource implements IBranchSpecSumm
 						this.accessed = new SimpleDateFormat(DATE_FORMAT).parse(
 														(String) map.get(MapKeys.ACCESS_KEY));
 					}
-				} catch (Throwable thr) {
+
+				// p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+				// } catch (Throwable thr) {
+				} catch (Exception thr) {
 					Log.warn("Unexpected exception in BranchSpecSummary constructor: "
 							+ thr.getMessage());
 					Log.exception(thr);

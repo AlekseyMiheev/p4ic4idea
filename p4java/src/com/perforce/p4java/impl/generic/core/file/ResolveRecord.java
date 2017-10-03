@@ -66,7 +66,9 @@ public class ResolveRecord implements IResolveRecord {
 				if (map.containsKey("resolveEndFromRev" + recNum)) {
 					this.resolveEndFromRevision = new Integer((String) map.get("resolveEndFromRev" + recNum));
 				}
-			} catch (Throwable thr) {
+			// p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+			// } catch (Throwable thr) {
+			} catch (Exception thr) {
 				Log.error(
 						"Unexpected exception in ResolveRecord constructor: " + thr.getLocalizedMessage());
 				Log.exception(thr);

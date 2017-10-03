@@ -108,7 +108,9 @@ public class UserSummary extends ServerResource implements IUserSummary {
 								.parse((String) map.get(MapKeys.PASSWORD_CHANGE_LC_KEY));
 					}
 				}
-			} catch (Throwable thr) {
+			// p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+			// } catch (Throwable thr) {
+			} catch (Exception thr) {
 				Log.error("Unexpected exception in UserSummary constructor: "
 						+ thr.getLocalizedMessage());
 				Log.exception(thr);

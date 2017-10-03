@@ -8,8 +8,8 @@ import java.io.OutputStream;
 import java.net.Socket;
 
 import com.perforce.p4java.Log;
-import com.perforce.p4java.exception.P4JavaError;
 import com.perforce.p4java.exception.NullPointerError;
+import com.perforce.p4java.exception.P4JavaError;
 import com.perforce.p4java.impl.mapbased.rpc.ServerStats;
 
 /**

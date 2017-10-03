@@ -32,7 +32,7 @@ EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  * and contributors of zlib.
  */
 
-package com.jcraft.jzlib;
+package com.perforce.jcraft.jzlib;
 
 final public class JZlib{
   private static final String version="1.1.0";

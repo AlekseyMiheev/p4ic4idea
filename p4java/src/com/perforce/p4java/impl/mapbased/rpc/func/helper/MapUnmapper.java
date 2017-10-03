@@ -3,9 +3,9 @@
  */
 package com.perforce.p4java.impl.mapbased.rpc.func.helper;
 
-import java.util.Map;
-
 import com.perforce.p4java.impl.mapbased.MapKeys;
+
+import java.util.Map;
 
 /**
  * Provides unmapping services to the P4Java RPC implementation.
@@ -189,6 +189,10 @@ public class MapUnmapper {
 
 			if (inMap.containsKey(MapKeys.STREAMATCHANGE_KEY)) {
 				strBuf.append(MapKeys.STREAMATCHANGE_KEY + MapKeys.COLON_SPACE + inMap.get(MapKeys.STREAMATCHANGE_KEY) + MapKeys.DOUBLE_LF);
+			}
+
+			if (inMap.containsKey(MapKeys.TYPE_KEY)) {
+				strBuf.append(MapKeys.TYPE_KEY + MapKeys.COLON_SPACE + inMap.get(MapKeys.TYPE_KEY) + MapKeys.DOUBLE_LF);
 			}
 		}
 	}

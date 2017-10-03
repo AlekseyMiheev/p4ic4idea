@@ -15,8 +15,8 @@ import com.perforce.p4java.exception.UnimplementedError;
 import com.perforce.p4java.impl.mapbased.rpc.connection.RpcConnection;
 import com.perforce.p4java.impl.mapbased.rpc.func.RpcFunctionMapKey;
 import com.perforce.p4java.impl.mapbased.rpc.func.RpcFunctionSpec;
-import com.perforce.p4java.impl.mapbased.rpc.packet.RpcPacketDispatcher;
 import com.perforce.p4java.impl.mapbased.rpc.packet.RpcPacket;
+import com.perforce.p4java.impl.mapbased.rpc.packet.RpcPacketDispatcher;
 
 /**
  * Process and implement the various Perforce flow control commands,

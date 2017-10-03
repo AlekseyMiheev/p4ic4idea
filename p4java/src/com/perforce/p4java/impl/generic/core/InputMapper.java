@@ -3,13 +3,6 @@
  */
 package com.perforce.p4java.impl.generic.core;
 
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-
 import com.perforce.p4java.Log;
 import com.perforce.p4java.admin.IProtectionEntry;
 import com.perforce.p4java.admin.IProtectionsTable;
@@ -40,6 +33,13 @@ import com.perforce.p4java.core.file.IFileSpec;
 import com.perforce.p4java.exception.P4JavaException;
 import com.perforce.p4java.impl.generic.client.ClientView;
 import com.perforce.p4java.impl.mapbased.MapKeys;
+
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 /**
  * A useful class with methods to map certain classes to maps suitable for feeding
@@ -207,6 +207,9 @@ public class InputMapper {
 			}
 			if (client.getStreamAtChange() != IChangelist.UNKNOWN) {
 				clientMap.put("StreamAtChange", client.getStreamAtChange());
+			}
+			if (client.getType() != null) {
+				clientMap.put("Type", client.getType());
 			}
 		}
 		
@@ -411,7 +414,7 @@ public class InputMapper {
 	/**
 	 * Map a list of P4Java IProtectionEntry object to an IServer input map.
 	 * 
-	 * @param protections table - list of protection entries
+	 * @param protectionsTable table - list of protection entries
 	 * @return non-null map suitable for use with execMapCmd
 	 */
 	
@@ -516,7 +519,7 @@ public class InputMapper {
 	/**
 	 * Map a list of P4Java ITriggerEntry object to an IServer input map.
 	 * 
-	 * @param triggers table - list of trigger entries
+	 * @param triggersTable table - list of trigger entries
 	 * @return non-null map suitable for use with execMapCmd
 	 */
 	

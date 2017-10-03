@@ -10,8 +10,8 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.perforce.p4java.Log;
-import com.perforce.p4java.exception.P4JavaError;
 import com.perforce.p4java.exception.NullPointerError;
+import com.perforce.p4java.exception.P4JavaError;
 import com.perforce.p4java.exception.ProtocolError;
 import com.perforce.p4java.impl.mapbased.rpc.ExternalEnv;
 import com.perforce.p4java.impl.mapbased.rpc.func.RpcFunctionMapKey;
@@ -357,7 +357,9 @@ public class RpcPacket {
 
 		} catch (ProtocolError pe) {
 			throw pe;
-		} catch (Throwable thr) {
+		// p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+		// } catch (Throwable thr) {
+		} catch (Exception thr) {
 			Log.error("Unexpected exception: " + thr.getLocalizedMessage());
 			Log.exception(thr);
 			throw new ProtocolError(thr.getLocalizedMessage(), thr);

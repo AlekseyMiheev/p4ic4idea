@@ -1,14 +1,14 @@
 package com.perforce.p4java.util;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-
 import com.perforce.p4java.Log;
 import com.perforce.p4java.impl.generic.sys.ISystemFileCommandsHelper;
 import com.perforce.p4java.impl.mapbased.rpc.sys.helper.SysFileHelperBridge;
 import com.perforce.p4java.server.ServerFactory;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
 
 /**
  * Files helper class with generally useful methods.
@@ -32,7 +32,7 @@ public class FilesHelper {
 					helper.setWritable(destination.getAbsolutePath(), true);
 				}
 				reader = new FileInputStream(source);
-				writer = new FileOutputStream(destination);
+				writer = new FileOutputStream(destination, false);
 				long targetCount = reader.getChannel().size();
 				long transferCount = writer.getChannel().transferFrom(reader.getChannel(), 0, targetCount);
 				copied = transferCount == targetCount;
@@ -67,7 +67,11 @@ public class FilesHelper {
 			if (parent != null) {
 				File parentDir = new File(parent);
 				if (!parentDir.exists()) {
-					return parentDir.mkdirs();
+					if(parentDir.mkdirs()) {
+						return true;
+					} else {
+						return parentDir.exists();
+					}
 				}
 			}
 			return true;

@@ -10,8 +10,8 @@ import java.nio.charset.Charset;
 
 import com.perforce.p4java.CharsetDefs;
 import com.perforce.p4java.Log;
-import com.perforce.p4java.exception.P4JavaError;
 import com.perforce.p4java.exception.NullPointerError;
+import com.perforce.p4java.exception.P4JavaError;
 import com.perforce.p4java.exception.ProtocolError;
 import com.perforce.p4java.impl.mapbased.rpc.connection.RpcConnection;
 import com.perforce.p4java.impl.mapbased.rpc.packet.helper.RpcPacketFieldRule;
@@ -279,7 +279,9 @@ public class RpcPacketField {
 			// (some time in the future, at any rate...)
 			
 			throw boe;
-		} catch (Throwable thr) {
+		// p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+		// } catch (Throwable thr) {
+		} catch (Exception thr) {
 			// Should be buffer overflow errors only; in any case,
 			// this is really a panic...
 			
@@ -326,7 +328,9 @@ public class RpcPacketField {
 				buf.put(value);
 			}
 			buf.put((byte) 0);
-		} catch (Throwable thr) {
+		// p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+		// } catch (Throwable thr) {
+		} catch (Exception thr) {
 			Log.error("Unexpected exception: " + thr.getLocalizedMessage());
 			Log.exception(thr);
 			throw new P4JavaError("Unexpected exception in RpcPacketField.marshal(ByteBuffer): "

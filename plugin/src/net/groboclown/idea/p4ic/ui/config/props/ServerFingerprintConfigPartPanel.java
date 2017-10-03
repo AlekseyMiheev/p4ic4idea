@@ -90,14 +90,16 @@ public class ServerFingerprintConfigPartPanel
      */
     private void $$$setupUI$$$() {
         rootPanel = new JPanel();
-        rootPanel.setLayout(new FormLayout("fill:d:noGrow,left:4dlu:noGrow,fill:d:grow", "center:d:noGrow"));
+        rootPanel.setLayout(new com.jgoodies.forms.layout.FormLayout("fill:d:noGrow,left:4dlu:noGrow,fill:d:grow",
+                "center:d:noGrow"));
         fingerprintFieldLabel = new JLabel();
         this.$$$loadLabelText$$$(fingerprintFieldLabel, ResourceBundle.getBundle("net/groboclown/idea/p4ic/P4Bundle")
                 .getString("configuration.properties.serverfingerprint.label"));
-        CellConstraints cc = new CellConstraints();
+        com.jgoodies.forms.layout.CellConstraints cc = new com.jgoodies.forms.layout.CellConstraints();
         rootPanel.add(fingerprintFieldLabel, cc.xy(1, 1));
         fingerprintField = new JTextField();
-        rootPanel.add(fingerprintField, cc.xy(3, 1, CellConstraints.FILL, CellConstraints.DEFAULT));
+        rootPanel.add(fingerprintField, cc.xy(3, 1, com.jgoodies.forms.layout.CellConstraints.FILL,
+                com.jgoodies.forms.layout.CellConstraints.DEFAULT));
     }
 
     /**

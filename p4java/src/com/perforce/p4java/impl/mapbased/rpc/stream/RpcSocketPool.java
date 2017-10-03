@@ -3,9 +3,6 @@
  */
 package com.perforce.p4java.impl.mapbased.rpc.stream;
 
-import com.perforce.p4java.Log;
-import com.perforce.p4java.impl.mapbased.rpc.stream.helper.RpcSocketHelper;
-
 import java.io.IOException;
 import java.net.Socket;
 import java.util.ArrayList;
@@ -13,6 +10,9 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Properties;
 import java.util.Queue;
+
+import com.perforce.p4java.Log;
+import com.perforce.p4java.impl.mapbased.rpc.stream.helper.RpcSocketHelper;
 
 /**
  * @author Kevin Sawicki (ksawicki@perforce.com)

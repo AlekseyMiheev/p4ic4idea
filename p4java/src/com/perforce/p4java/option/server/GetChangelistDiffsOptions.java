@@ -14,7 +14,7 @@ import com.perforce.p4java.server.IServer;
  * 
  * @see com.perforce.p4java.server.IOptionsServer#getChangelistDiffs(int, com.perforce.p4java.option.server.GetChangelistDiffsOptions)
  */
-public class GetChangelistDiffsOptions extends Options {
+public class GetChangelistDiffsOptions extends Options implements DiffsOptions<GetChangelistDiffsOptions> {
 	
 	/**
 	 * Options: "-S", "-dn", "-dc[n]", "-ds", "-du[n]" "-db", "-dw", "-dl"
@@ -103,7 +103,6 @@ public class GetChangelistDiffsOptions extends Options {
 	/** 
 	 * @see com.perforce.p4java.option.Options#processOptions(com.perforce.p4java.server.IServer)
 	 */
-	@Override
 	public List<String> processOptions(IServer server) throws OptionsException {
 		this.optionList = this.processFields(OPTIONS_SPECS,
 								this.isOutputShelvedDiffs(),

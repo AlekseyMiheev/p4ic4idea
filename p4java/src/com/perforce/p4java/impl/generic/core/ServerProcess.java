@@ -51,7 +51,9 @@ public class ServerProcess extends ServerResource implements IServerProcess {
 				this.time = (String) map.get(MapKeys.TIME_LC_KEY);
 				this.command = (String) map.get(MapKeys.COMMAND_LC_KEY);
 				this.args = (String) map.get(MapKeys.ARGS_LC_KEY);
-			} catch (Throwable thr) {
+			// p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+			// } catch (Throwable thr) {
+			} catch (Exception thr) {
 				Log.warn("Unexpected exception in ServerProcess constructor: "
 									+ thr.getMessage());
 				Log.exception(thr);

@@ -47,6 +47,7 @@ public interface IFileOperationResult extends IServerResource {
 	 * 
 	 * @return possibly-null Perforce operation message.
 	 */
+	// p4ic4idea: return IServerMessage instead of string.
 	IServerMessage getStatusMessage();
 	
 	/**

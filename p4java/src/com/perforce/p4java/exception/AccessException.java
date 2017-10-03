@@ -12,7 +12,7 @@ import com.perforce.p4java.server.IServerMessage;
  * 
  *
  */
-
+// p4ic4idea: Updated to take an IServerMessage
 public class AccessException extends P4JavaException {
 
 	private static final long serialVersionUID = 1L;

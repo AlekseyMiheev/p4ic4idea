@@ -85,6 +85,9 @@ public class ClientMessage {
 		OS_FILE_READ_ERROR,
 		CANT_CHMOD_FILE,
 		DIGEST_MISMATCH, // 10.2 sync transfer error
+		FILE_OPEN_ERROR,
+		FILE_DECODER_ERROR, // 17.3 UTF16 decoder
+		FILE_ENCODER_ERROR  // 17.3 UTF16 encoder
 	};
 	
 	// Message array. Make sure UNKNOWN is element zero, but otherwise
@@ -184,6 +187,18 @@ public class ClientMessage {
 						37,
 						"%clientFile% corrupted during transfer (or bad on the server) %clientDigest% vs %serverDigest%",
 						new String[] {"clientFile", "clientDigest", "serverDigest"}),
+		new ClientMessage(ClientMessageId.FILE_OPEN_ERROR,
+						40,
+						"Error opening file.",
+						new String[] {}),
+		new ClientMessage(ClientMessageId.FILE_DECODER_ERROR,
+						0,
+						"%file% - decoding error.",
+						new String[] {"file"}),
+		new ClientMessage(ClientMessageId.FILE_ENCODER_ERROR,
+						0,
+						"%file% - encoding error.",
+						new String[] {"file"}),
 	};
 	
 	/**

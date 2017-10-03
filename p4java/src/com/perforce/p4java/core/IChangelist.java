@@ -61,9 +61,8 @@ public interface IChangelist extends IServerResource, IChangelistSummary {
 		 * around issues to do with things like Turkish language
 		 * encodings of dotted upper-case "i"'s...
 		 * 
-		 * @see Enum#toString()
+		 * @see java.lang.Enum#toString()
 		 */
-		@Override
 		public String toString() {
 			return super.toString().toLowerCase(Locale.ENGLISH);
 		}
@@ -81,7 +80,7 @@ public interface IChangelist extends IServerResource, IChangelistSummary {
 	 * 				its processing of the request
 	 * @throws AccessException if the Perforce server denies access to the caller 
 	 */
-	@Override
+	
 	void refresh() throws ConnectionException, RequestException, AccessException;
 	
 	/**

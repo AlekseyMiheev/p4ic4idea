@@ -22,6 +22,11 @@ public class ServerAddressBuilder {
 	private String rsh = null;
 
 	/**
+	 * Instantiates an empty server address builder.
+	 */
+	public ServerAddressBuilder() {}
+	
+	/**
 	 * Instantiates a new server address builder from a string.
 	 * 
 	 * @param serverAddress
@@ -146,6 +151,15 @@ public class ServerAddressBuilder {
 	}
 
 	/**
+	 * Sets the protocol.
+	 * 
+	 * @param protocol the protocol
+	 */
+	public void setProtocol(Protocol protocol) {
+		this.protocol = protocol;
+	}
+
+	/**
 	 * Gets the host.
 	 * 
 	 * @return the host
@@ -155,12 +169,30 @@ public class ServerAddressBuilder {
 	}
 
 	/**
+	 * Sets the host.
+	 * 
+	 * @param host the host
+	 */
+	public void setHost(String host) {
+		this.host = host;
+	}
+
+	/**
 	 * Gets the port.
 	 * 
-	 * @return the host
+	 * @return the port
 	 */
 	public int getPort() {
 		return this.port;
+	}
+
+	/**
+	 * Sets the port.
+	 * 
+	 * @param port the port
+	 */
+	public void setPort(int port) {
+		this.port = port;
 	}
 
 	/**
@@ -187,7 +219,16 @@ public class ServerAddressBuilder {
 	 * @return the uri
 	 */
 	public String getUri() {
-		return this.uri;
+		if (this.uri != null)
+			return this.uri;
+		
+		String newUri = protocol.toString() + "://";
+		if (protocol == Protocol.P4JRSH || protocol == Protocol.P4JRSHNTS) {
+			newUri += this.rsh;
+		} else {
+			newUri += this.host + ":" + this.port;
+		}
+		return newUri;
 	}
 
 	/**
@@ -197,5 +238,14 @@ public class ServerAddressBuilder {
 	 */
 	public String getRsh() {
 		return this.rsh;
+	}
+
+	/**
+	 * Sets the rsh command.
+	 * 
+	 * @param rsh the rsh command
+	 */
+	public void setRsh(String rsh) {
+		this.rsh = rsh;
 	}
 }

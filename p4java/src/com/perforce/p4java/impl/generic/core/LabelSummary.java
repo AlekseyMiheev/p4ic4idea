@@ -91,7 +91,9 @@ public class LabelSummary extends ServerResource implements ILabelSummary {
 						&& ((String) map.get("IsUnloaded")).equals("1")) {
 					this.unloaded = true;
 				}
-			} catch (Throwable thr) {
+			// p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+			// } catch (Throwable thr) {
+			} catch (Exception thr) {
 				Log.error("Unexpected exception in LabelSummary constructor: "
 								+ thr.getLocalizedMessage());
 				Log.exception(thr);

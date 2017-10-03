@@ -7,10 +7,10 @@ import java.io.FilterOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 
-import com.jcraft.jzlib.JZlib;
-import com.jcraft.jzlib.ZStream;
-import com.perforce.p4java.exception.P4JavaError;
+import com.perforce.jcraft.jzlib.JZlib;
+import com.perforce.jcraft.jzlib.ZStream;
 import com.perforce.p4java.exception.NullPointerError;
+import com.perforce.p4java.exception.P4JavaError;
 import com.perforce.p4java.exception.UnimplementedError;
 
 

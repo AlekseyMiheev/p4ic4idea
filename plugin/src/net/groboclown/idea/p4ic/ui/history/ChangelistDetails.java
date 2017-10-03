@@ -198,12 +198,12 @@ public class ChangelistDetails {
         final JScrollPane scrollPane1 = new JScrollPane();
         root.add(scrollPane1, BorderLayout.CENTER);
         final JPanel panel1 = new JPanel();
-        panel1.setLayout(new FormLayout("fill:d:grow",
+        panel1.setLayout(new com.jgoodies.forms.layout.FormLayout("fill:d:grow",
                 "center:p:noGrow,top:4dlu:noGrow,center:max(d;4px):noGrow,top:4dlu:noGrow,center:d:noGrow,top:4dlu:noGrow,center:max(d;4px):noGrow,top:4dlu:noGrow,center:max(d;4px):noGrow,top:4dlu:noGrow,center:d:grow"));
         scrollPane1.setViewportView(panel1);
         final JPanel panel2 = new JPanel();
         panel2.setLayout(new BorderLayout(0, 0));
-        CellConstraints cc = new CellConstraints();
+        com.jgoodies.forms.layout.CellConstraints cc = new com.jgoodies.forms.layout.CellConstraints();
         panel1.add(panel2, cc.xy(1, 5));
         panel2.setBorder(BorderFactory.createTitledBorder(BorderFactory.createLoweredBevelBorder(), null));
         final JScrollPane scrollPane2 = new JScrollPane();
@@ -222,10 +222,11 @@ public class ChangelistDetails {
         }
         this.$$$loadLabelText$$$(changelistTitle,
                 ResourceBundle.getBundle("net/groboclown/idea/p4ic/P4Bundle").getString("changelist.details.title"));
-        panel1.add(changelistTitle, new CellConstraints(1, 1, 1, 1, CellConstraints.DEFAULT, CellConstraints.DEFAULT,
+        panel1.add(changelistTitle, new com.jgoodies.forms.layout.CellConstraints(1, 1, 1, 1,
+                com.jgoodies.forms.layout.CellConstraints.DEFAULT, com.jgoodies.forms.layout.CellConstraints.DEFAULT,
                 new Insets(4, 4, 4, 4)));
         final JPanel panel3 = new JPanel();
-        panel3.setLayout(new FormLayout("fill:d:noGrow,left:4dlu:noGrow,fill:d:grow",
+        panel3.setLayout(new com.jgoodies.forms.layout.FormLayout("fill:d:noGrow,left:4dlu:noGrow,fill:d:grow",
                 "center:d:noGrow,top:4dlu:noGrow,center:max(d;4px):noGrow"));
         panel1.add(panel3, cc.xy(1, 3));
         final JLabel label1 = new JLabel();
@@ -234,14 +235,16 @@ public class ChangelistDetails {
         panel3.add(label1, cc.xy(1, 1));
         authorField = new JTextField();
         authorField.setEditable(false);
-        panel3.add(authorField, cc.xy(3, 1, CellConstraints.FILL, CellConstraints.DEFAULT));
+        panel3.add(authorField, cc.xy(3, 1, com.jgoodies.forms.layout.CellConstraints.FILL,
+                com.jgoodies.forms.layout.CellConstraints.DEFAULT));
         final JLabel label2 = new JLabel();
         this.$$$loadLabelText$$$(label2,
                 ResourceBundle.getBundle("net/groboclown/idea/p4ic/P4Bundle").getString("changelist.details.date"));
         panel3.add(label2, cc.xy(1, 3));
         dateField = new JTextField();
         dateField.setEditable(false);
-        panel3.add(dateField, cc.xy(3, 3, CellConstraints.FILL, CellConstraints.DEFAULT));
+        panel3.add(dateField, cc.xy(3, 3, com.jgoodies.forms.layout.CellConstraints.FILL,
+                com.jgoodies.forms.layout.CellConstraints.DEFAULT));
         jobsPanel = new JPanel();
         jobsPanel.setLayout(new BorderLayout(0, 0));
         panel1.add(jobsPanel, cc.xy(1, 9));
@@ -256,8 +259,9 @@ public class ChangelistDetails {
                 ResourceBundle.getBundle("net/groboclown/idea/p4ic/P4Bundle").getString("changelist.details.files")));
         filesTable.setAutoResizeMode(4);
         filesPanel.add(filesTable, BorderLayout.CENTER);
-        final Spacer spacer1 = new Spacer();
-        panel1.add(spacer1, cc.xy(1, 11, CellConstraints.DEFAULT, CellConstraints.FILL));
+        final com.intellij.uiDesigner.core.Spacer spacer1 = new com.intellij.uiDesigner.core.Spacer();
+        panel1.add(spacer1, cc.xy(1, 11, com.jgoodies.forms.layout.CellConstraints.DEFAULT,
+                com.jgoodies.forms.layout.CellConstraints.FILL));
         label1.setLabelFor(authorField);
         label2.setLabelFor(dateField);
     }

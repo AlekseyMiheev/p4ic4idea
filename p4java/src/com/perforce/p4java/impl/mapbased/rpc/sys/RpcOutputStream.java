@@ -1,7 +1,20 @@
 /**
- * 
+ *
  */
 package com.perforce.p4java.impl.mapbased.rpc.sys;
+
+import com.perforce.p4java.CharsetConverter;
+import com.perforce.p4java.CharsetDefs;
+import com.perforce.p4java.env.SystemInfo;
+import com.perforce.p4java.exception.FileDecoderException;
+import com.perforce.p4java.exception.FileEncoderException;
+import com.perforce.p4java.exception.NullPointerError;
+import com.perforce.p4java.exception.P4JavaError;
+import com.perforce.p4java.impl.generic.client.ClientLineEnding;
+import com.perforce.p4java.impl.mapbased.rpc.RpcPropertyDefs;
+import com.perforce.p4java.impl.mapbased.rpc.connection.RpcConnection;
+import com.perforce.p4java.impl.mapbased.rpc.func.RpcFunctionMapKey;
+import com.perforce.p4java.impl.mapbased.rpc.func.helper.MD5Digester;
 
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayInputStream;
@@ -18,15 +31,6 @@ import java.util.zip.CheckedOutputStream;
 import java.util.zip.Checksum;
 import java.util.zip.Inflater;
 
-import com.perforce.p4java.CharsetDefs;
-import com.perforce.p4java.CharsetConverter;
-import com.perforce.p4java.exception.P4JavaError;
-import com.perforce.p4java.exception.NullPointerError;
-import com.perforce.p4java.impl.generic.client.ClientLineEnding;
-import com.perforce.p4java.impl.mapbased.rpc.RpcPropertyDefs;
-import com.perforce.p4java.impl.mapbased.rpc.func.RpcFunctionMapKey;
-import com.perforce.p4java.impl.mapbased.rpc.func.helper.MD5Digester;
-
 /**
  * Provides a Perforce-specific extension to the basic Java OuputStream to allow
  * us to intercept methods and implement our own extensions. The two main aims
@@ -34,13 +38,13 @@ import com.perforce.p4java.impl.mapbased.rpc.func.helper.MD5Digester;
  * end processing for text files where needed; everything else is just currently
  * handled in the superclass without real intervention.
  * <p>
- * 
+ * <p>
  * Note that for the unzipping we use a contained file output stream rather than
  * ourself, mostly to avoid recursion...
- * 
+ * <p>
  * Some of the raw GZUNZIP methods and definitions are copied pretty much as-is
  * from the original gkzip stuff.<p>
- * 
+ * <p>
  * The 10.2 sync / transfer integrity checks are basically implemented here, with
  * help from the RpcInflaterOutputStream class. The way this is done is the MD5 hashing
  * has to be done against the incoming 'raw' bytes (i.e. the normalized server-side
@@ -60,11 +64,11 @@ public class RpcOutputStream extends FileOutputStream {
 	 * GZIP File header flags.
 	 */
 	@SuppressWarnings("unused")
-	private final static int FTEXT	= 1;	// Extra text
-	private final static int FHCRC	= 2; // Header CRC
-	private final static int FEXTRA	= 4; // Extra field
-	private final static int FNAME	= 8; // File name
-	private final static int FCOMMENT	= 16; // File comment
+	private final static int FTEXT = 1;    // Extra text
+	private final static int FHCRC = 2; // Header CRC
+	private final static int FEXTRA = 4; // Extra field
+	private final static int FNAME = 8; // File name
+	private final static int FCOMMENT = 16; // File comment
 
 	private static final int TRAILER_SIZE = 8; // bytes
 
@@ -77,80 +81,89 @@ public class RpcOutputStream extends FileOutputStream {
 	private boolean headerRead = false;
 	private byte[] footerBytes = null;
 	private boolean closed = false;
+	private boolean writeUtf8Bom = false;
 	private ClientLineEnding lineEnding = null;
 	private RpcLineEndFilterOutputStream lineEndStream = null;
 	private Charset charset = null;
-	private CharsetConverter converter;
-	private String serverDigest = null;	// If given, the server-side MD5 digest
-										// for this file. Used in the 10.2+ sync (etc.)
-										// transfer integrity checks.
-	private MD5Digester localDigester = null;	// Also used in the 10.2+ transfer
-												// integrity checks.
+	private CharsetConverter converter = null;
+	private String serverDigest = null;    // If given, the server-side MD5 digest
+	// for this file. Used in the 10.2+ sync (etc.)
+	// transfer integrity checks.
+	private MD5Digester localDigester = null;    // Also used in the 10.2+ transfer
+	// integrity checks.
 
 	public RpcOutputStream(RpcPerforceFile file) throws IOException {
 		this(file, null, false, false);
 	}
-	
-	public RpcOutputStream(RpcPerforceFile file, boolean useLocalDigester) throws IOException {
-		this(file, null, false, useLocalDigester);
+
+	public RpcOutputStream(RpcPerforceFile file, RpcConnection rpcConnection, boolean useLocalDigester) throws IOException {
+		this(file, rpcConnection.getClientCharset(), rpcConnection.isUnicodeServer(), useLocalDigester, rpcConnection.getFilesysUtf8bom());
 	}
 
 	public RpcOutputStream(RpcPerforceFile file, Charset charset, boolean isUnicodeServer,
-										boolean useLocalDigester) throws IOException {
+	                       boolean useLocalDigester) throws IOException {
+		this(file, charset, isUnicodeServer, useLocalDigester, 1);
+	}
+
+	public RpcOutputStream(RpcPerforceFile file, Charset charset, boolean isUnicodeServer,
+	                       boolean useLocalDigester, int filesys_utf8bom) throws IOException {
 		super(file);
 		if (file == null) {
 			throw new NullPointerError(
-				"Null RpcPerforceFile passed to RpcOutputStream constructor");
+					"Null RpcPerforceFile passed to RpcOutputStream constructor");
 		}
-		
+
 		if (useLocalDigester) {
 			this.localDigester = new MD5Digester();
 		}
-		
-		if( charset != null && !charset.equals(CharsetDefs.UTF8) ) {
-			this.charset = charset;
+		this.fileType = file.getFileType();
+		if (charset != null
+				&& !(this.fileType.equals(RpcPerforceFileType.FST_XUTF8) || this.fileType.equals(RpcPerforceFileType.FST_UTF8))) {
+			this.charset = isUnicodeServer && !charset.equals(CharsetDefs.UTF8) ? charset : null;
 		}
-		
 		this.closed = false;
 		this.file = file;
-		this.fileType = file.getFileType();
 		this.lineEnding = file.getLineEnding();
+		this.writeUtf8Bom = false;
 
 		if (this.fileType != null) {
-			switch	(this.fileType) {
+			switch (this.fileType) {
 				case FST_UTF16:
-					// fall through
 				case FST_XUTF16:
 					this.charset = CharsetDefs.UTF16;
-					// fall through
+				case FST_UTF8:
+				case FST_XUTF8:
+					// We only write a UTF8 BOM if no charset was set or it is set to a value other
+					// than UTF8
+					boolean addBOM = (filesys_utf8bom == 1 || (filesys_utf8bom == 2 && SystemInfo.isWindows()));
+					this.writeUtf8Bom = (this.charset == null) ? addBOM : false;
 				case FST_UNICODE:
-					// fall through
 				case FST_XUNICODE:
 					if ((this.charset != null) &&
-								(isUnicodeServer || (this.charset == CharsetDefs.UTF16))) {
+							(isUnicodeServer || (this.charset == CharsetDefs.UTF16))) {
 						this.converter = new CharsetConverter(CharsetDefs.UTF8, this.charset);
 					}
-					// fall through
 				case FST_TEXT:
-					// fall through
 				case FST_XTEXT:
 					if (ClientLineEnding.needsLineEndFiltering(lineEnding)) {
 						this.lineEndStream = new RpcLineEndFilterOutputStream(
-														this, this.lineEnding);
+								this, this.lineEnding);
 					}
-					
+
 					break;
-					
+
 				case FST_GUNZIP:
-					// fall through
 				case FST_XGUNZIP:
 					this.inflater = new Inflater(true);
 					this.crc = new RpcCRC32Checksum();
 					this.checkedOutStream = new CheckedOutputStream(new BufferedOutputStream(this), this.crc);
 					this.outStream = new RpcInflaterOutputStream(this.checkedOutStream, this.inflater,
-															this.localDigester);
+							this.localDigester);
 					this.headerRead = false;
 					this.footerBytes = new byte[TRAILER_SIZE];
+					break;
+
+				default:
 					break;
 			}
 		} else {
@@ -163,18 +176,26 @@ public class RpcOutputStream extends FileOutputStream {
 		if (!closed) {
 			closed = true;
 			switch (this.fileType) {
+				case FST_UTF16:
+				case FST_XUTF16:
+				case FST_UTF8:
+				case FST_XUTF8:
+				case FST_UNICODE:
+				case FST_XUNICODE:
 				case FST_TEXT:
 				case FST_XTEXT:
 					if (this.lineEndStream != null) {
 						this.lineEndStream.close();
 					}
 					break;
-				
+
 				case FST_GUNZIP:
-				case FST_XGUNZIP:			
+				case FST_XGUNZIP:
 					readTrailer(this.footerBytes);
 					this.outStream.close();
 					this.checkedOutStream.close();
+					break;
+				default:
 					break;
 			}
 			super.close();
@@ -182,38 +203,27 @@ public class RpcOutputStream extends FileOutputStream {
 	}
 
 	/**
-	 * @see java.io.OutputStream#flush()
-	 */
-	public void flush() throws IOException {
-		super.flush();
-		// Flush unicode chars
-		if (this.converter != null) {
-			byte[] underflow = this.converter.clearUnderflow();
-			if( underflow != null) {
-				writeConverted(underflow);
-			}
-		}
-	}
-	
-	/**
 	 * Specialized write method to write a map containing a byte array
 	 * with the key RpcFunctionMapKey.DATA (all other fields are ignored).
 	 * This map is assumed to have been constructed as part of the writeFile()
 	 * method or something similar.
+	 *
+	 * @throws FileEncoderException
+	 * @throws FileDecoderException
 	 */
-	
-	public long write(Map<String, Object> map) throws IOException {
+
+	public long write(Map<String, Object> map) throws IOException, FileDecoderException, FileEncoderException {
 		if (map == null) {
 			throw new NullPointerError(
-				"Null map passed to RpcOutputStream.write(map)");
+					"Null map passed to RpcOutputStream.write(map)");
 		}
-		
+
 		try {
 			byte[] sourceBytes = (byte[]) map.get(RpcFunctionMapKey.DATA);
 			return writeConverted(sourceBytes);
 		} catch (ClassCastException exc) {
 			throw new P4JavaError(
-				"RpcFunctionMapKey.DATA value not byte[] type");
+					"RpcFunctionMapKey.DATA value not byte[] type");
 		}
 	}
 
@@ -240,26 +250,35 @@ public class RpcOutputStream extends FileOutputStream {
 		}
 		super.write(b, 0, b.length);
 	}
-	
+
 	/**
 	 * Write an array of bytes with being aware of encodings, line ending
 	 * conversions, and compression. Any 10.2+ sync integrity checks are
 	 * done either here or in the unzip's stream, but (definitely) not
 	 * in both places.
-	 * 
+	 *
 	 * @param sourceBytes
 	 * @throws IOException
+	 * @throws FileEncoderException
+	 * @throws FileDecoderException
 	 */
-	public long writeConverted(byte[] sourceBytes) throws IOException {
+	public long writeConverted(byte[] sourceBytes) throws IOException, FileDecoderException, FileEncoderException {
 		int len = sourceBytes.length;
-		
+		int start = 0;
+		int bom = 0;
+
+		if (writeUtf8Bom) {
+			this.write(new byte[]{(byte) 0xEF, (byte) 0xBB, (byte) 0xBF}, 0, 3);
+			bom = 3;
+			writeUtf8Bom = false;
+		}
+
 		if (len <= 0) {
 			return 0;
 		}
-		int start = 0;
 
-		long bytesWritten = len - start;
-		
+		long bytesWritten = len + bom - start;
+
 		switch (this.fileType) {
 			case FST_UNICODE:
 			case FST_UTF16:
@@ -277,13 +296,14 @@ public class RpcOutputStream extends FileOutputStream {
 						ByteArrayOutputStream out = new ByteArrayOutputStream(
 								RpcPropertyDefs.RPC_DEFAULT_FILE_BUF_SIZE);
 						this.lineEndStream.write(out, sourceBytes, start, len);
-	
+
 						sourceBytes = out.toByteArray();
 						len = sourceBytes.length;
 						start = 0;
 					}
-				
+
 					ByteBuffer sourceBuffer = ByteBuffer.wrap(sourceBytes);
+
 					ByteBuffer converted = this.converter.convert(sourceBuffer);
 					if (converted != null) {
 						sourceBytes = converted.array();
@@ -292,18 +312,20 @@ public class RpcOutputStream extends FileOutputStream {
 					} else {
 						len = 0;
 					}
-	
+
 					if (len <= 0) {
 						return 0;
 					}
-					
+
 					this.write(sourceBytes, start, len);
-					bytesWritten = len - start;
+					bytesWritten = len + bom - start;
 					break;
 				}
-			
+
 			case FST_TEXT:
+			case FST_UTF8:
 			case FST_XTEXT:
+			case FST_XUTF8:
 				if (this.localDigester != null) {
 					this.localDigester.update(sourceBytes, start, len);
 				}
@@ -312,12 +334,12 @@ public class RpcOutputStream extends FileOutputStream {
 				} else {
 					this.write(sourceBytes, start, len);
 				}
-				bytesWritten = len - start;
+				bytesWritten = len + bom - start;
 				break;
-			
+
 			case FST_GUNZIP:
 			case FST_XGUNZIP:
-				
+
 				// NOTE: We always copy the last eight bytes of what's passed into
 				// us here so we can use it for trailer / footer calculation
 				// later, when we don't have direct access to it (we can't retrieve it
@@ -327,7 +349,7 @@ public class RpcOutputStream extends FileOutputStream {
 				// possibilities for cross-packet trailers, etc., so what's here
 				// can almost certainly be reworked in a more efficient way
 				// in later versions (using FilterOutputStream?) --- HR.
-				
+
 				long bytesWrittenPrior = this.outStream.getBytesWritten();
 
 				if (!headerRead) {
@@ -338,9 +360,9 @@ public class RpcOutputStream extends FileOutputStream {
 					int bytesAvailable = byteStream.available();
 					if (bytesAvailable > 0) {
 						this.outStream.write(sourceBytes, (len - bytesAvailable),
-																			bytesAvailable);
-						
-						if (bytesAvailable >= TRAILER_SIZE) {							
+								bytesAvailable);
+
+						if (bytesAvailable >= TRAILER_SIZE) {
 							System.arraycopy(
 									sourceBytes,
 									(len - TRAILER_SIZE),
@@ -350,7 +372,7 @@ public class RpcOutputStream extends FileOutputStream {
 						} else {
 							// Copy what we can; if it turns out the rest was in the next
 							// packet, we'll detect that then...
-							
+
 							System.arraycopy(
 									sourceBytes,
 									(len - bytesAvailable),
@@ -361,7 +383,7 @@ public class RpcOutputStream extends FileOutputStream {
 					}
 				} else {
 					this.outStream.write(sourceBytes, 0, len);
-						
+
 					if (len >= TRAILER_SIZE) {
 						System.arraycopy(
 								sourceBytes,
@@ -371,17 +393,17 @@ public class RpcOutputStream extends FileOutputStream {
 								TRAILER_SIZE);
 					} else {
 						// first move the last (TRAILER_SIZE-len) bytes to the
-				        // beginning of the footer
-						
+						// beginning of the footer
+
 						System.arraycopy(
 								this.footerBytes,
 								len,
 								this.footerBytes,
 								0,
-								TRAILER_SIZE - len );
-					
+								TRAILER_SIZE - len);
+
 						// Add to what's (hopefully) there already...
-						
+
 						System.arraycopy(
 								sourceBytes,
 								0,
@@ -390,23 +412,25 @@ public class RpcOutputStream extends FileOutputStream {
 								len);
 					}
 				}
-				
+
 				bytesWritten = this.outStream.getBytesWritten() - bytesWrittenPrior;
 				break;
-			
+
 			default:
 				if (this.localDigester != null) {
 					this.localDigester.update(sourceBytes, 0, len);
 				}
 				this.write(sourceBytes, 0, len);
-				bytesWritten = len - 0;
+				bytesWritten = len + bom - 0;
 		}
 
 		return bytesWritten;
 	}
 
+
+
 	@Override
-	public void write(int b) throws IOException {		
+	public void write(int b) throws IOException {
 		super.write(b);
 	}
 
@@ -419,11 +443,11 @@ public class RpcOutputStream extends FileOutputStream {
 		crc.reset();
 		// Check header magic
 		if (readUShort(in) != GZIP_MAGIC) {
-		    throw new IOException("Not in GZIP format");
+			throw new IOException("Not in GZIP format");
 		}
 		// Check compression method
 		if (readUByte(in) != 8) {
-		    throw new IOException("Unsupported compression method");
+			throw new IOException("Unsupported compression method");
 		}
 		// Read flags
 		int flg = readUByte(in);
@@ -431,28 +455,28 @@ public class RpcOutputStream extends FileOutputStream {
 		skipBytes(in, 6);
 		// Skip optional extra field
 		if ((flg & FEXTRA) == FEXTRA) {
-		    skipBytes(in, readUShort(in));
+			skipBytes(in, readUShort(in));
 		}
 		// Skip optional file name
 		if ((flg & FNAME) == FNAME) {
-		    while (readUByte(in) != 0) ;
+			while (readUByte(in) != 0) ;
 		}
 		// Skip optional file comment
 		if ((flg & FCOMMENT) == FCOMMENT) {
-		    while (readUByte(in) != 0) ;
+			while (readUByte(in) != 0) ;
 		}
 		// Check optional header CRC
 		if ((flg & FHCRC) == FHCRC) {
-		    int v = (int)crc.getValue() & 0xffff;
-		    if (readUShort(in) != v) {
-			throw new IOException("Corrupt GZIP header");
-		    }
+			int v = (int) crc.getValue() & 0xffff;
+			if (readUShort(in) != v) {
+				throw new IOException("Corrupt GZIP header");
+			}
 		}
 	}
 
 	private void readTrailer(byte[] bytes) throws IOException {
 		InputStream in = new ByteArrayInputStream(bytes);
-		
+
 		// Uses left-to-right evaluation order
 		long intIn = readUInt(in);
 		long len = readUInt(in);
@@ -461,9 +485,9 @@ public class RpcOutputStream extends FileOutputStream {
 		if ((checksum != null) && (intIn != checksum.getValue())) {
 			throw new IOException("Corrupt GZIP trailer (bad CRC value)");
 		}
-		
+
 		if (len != (inflater.getBytesWritten() & 0xffffffffL)) {
-		    throw new IOException("Corrupt GZIP trailer (bad bytes-written size)");
+			throw new IOException("Corrupt GZIP trailer (bad bytes-written size)");
 		}
 	}
 
@@ -472,39 +496,39 @@ public class RpcOutputStream extends FileOutputStream {
 	 */
 	private long readUInt(InputStream in) throws IOException {
 		long s = readUShort(in);
-		return ((long)readUShort(in) << 16) | s;
-    }
+		return ((long) readUShort(in) << 16) | s;
+	}
 
 	/*
 	 * Reads unsigned short in Intel byte order.
 	 */
-    private int readUShort(InputStream in) throws IOException {
+	private int readUShort(InputStream in) throws IOException {
 		int b = readUByte(in);
-		return ((int)readUByte(in) << 8) | b;
-    }
+		return (readUByte(in) << 8) | b;
+	}
 
 	/*
 	 * Reads unsigned byte.
 	 */
-    private int readUByte(InputStream in) throws IOException {
+	private int readUByte(InputStream in) throws IOException {
 		int b = in.read();
 		if (b == -1) {
-		    throw new EOFException();
+			throw new EOFException();
 		}
-	        if (b < -1 || b > 255) {
-	            throw new IOException(".read() returned value out of range -1..255: " + b);
-	    }
+		if (b < -1 || b > 255) {
+			throw new IOException(".read() returned value out of range -1..255: " + b);
+		}
 		return b;
-    }
+	}
 
-	private  void skipBytes(InputStream in, int n) throws IOException {
+	private void skipBytes(InputStream in, int n) throws IOException {
 		byte[] tmpbuf = new byte[128];
 		while (n > 0) {
-		    int len = in.read(tmpbuf, 0, n < tmpbuf.length ? n : tmpbuf.length);
-		    if (len == -1) {
-		    	throw new EOFException("Unexpected EOF");
-		    }
-		    n -= len;
+			int len = in.read(tmpbuf, 0, n < tmpbuf.length ? n : tmpbuf.length);
+			if (len == -1) {
+				throw new EOFException("Unexpected EOF");
+			}
+			n -= len;
 		}
 	}
 

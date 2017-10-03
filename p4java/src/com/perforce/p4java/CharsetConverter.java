@@ -1,6 +1,9 @@
 package com.perforce.p4java;
 
 import com.perforce.p4java.exception.ClientError;
+import com.perforce.p4java.exception.FileDecoderException;
+import com.perforce.p4java.exception.FileEncoderException;
+import com.perforce.p4java.impl.mapbased.rpc.sys.helper.Utf8ByteHelper;
 
 import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
@@ -10,6 +13,7 @@ import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CharsetEncoder;
+import java.nio.charset.CoderResult;
 import java.nio.charset.CodingErrorAction;
 
 /**
@@ -17,28 +21,29 @@ import java.nio.charset.CodingErrorAction;
  */
 public class CharsetConverter {
 
-    // Encode this to get byte order mark
-    final String bomChar = "\uFEFF";
+	// Encode this to get byte order mark
+	final String bomChar = "\uFEFF";
 
 	private CharsetDecoder decoder;
 	private CharsetEncoder encoder;
 
-	private byte[] underflow;
 	private boolean checkBOM = false;
 	private boolean ignoreBOM = false;
+
+	// UTF8 remainder buffer
+	private ByteBuffer remainder = null;
 
 	/**
 	 * Creates a new charset converted that decodes/encodes bytes in the
 	 * specified non-null from/to charset objects specified.
-	 * 
+	 *
 	 * @param fromCharset
 	 * @param toCharset
-	 * @param ignoreBOM
-	 *            - true to ignore any byte order marks written by the UTF-16
-	 *            charset and omit them from all return byte buffers
+	 * @param ignoreBOM   - true to ignore any byte order marks written by the UTF-16
+	 *                    charset and omit them from all return byte buffers
 	 */
 	public CharsetConverter(Charset fromCharset, Charset toCharset,
-			boolean ignoreBOM) {
+	                        boolean ignoreBOM) {
 		// Create decoder that reports malformed/unmappable values
 		this.decoder = fromCharset.newDecoder();
 		this.decoder.onMalformedInput(CodingErrorAction.REPORT);
@@ -57,17 +62,8 @@ public class CharsetConverter {
 	}
 
 	/**
-	 * Get charset name of from charset used to decode
-	 * 
-	 * @return - charset name
-	 */
-	public String getFromCharsetName() {
-		return this.decoder.charset().name();
-	}
-
-	/**
 	 * Get charset name of to charset used to encode
-	 * 
+	 *
 	 * @return - charset name
 	 */
 	public String getToCharsetName() {
@@ -77,7 +73,7 @@ public class CharsetConverter {
 	/**
 	 * Creates a new charset converted that decodes/encodes bytes in the
 	 * specified non-null from/to charset objects specified.
-	 * 
+	 *
 	 * @param fromCharset
 	 * @param toCharset
 	 */
@@ -86,31 +82,17 @@ public class CharsetConverter {
 	}
 
 	/**
-	 * Get and clear the current converted underflow byte array. This results of
-	 * this method should be wrapped in a {@link ByteBuffer} and specified as
-	 * the from buffer on a call to {@link #convert(ByteBuffer)} to try convert
-	 * any remaining bytes.
-	 * 
-	 * @return - byte array of underflow or null if the last call to
-	 *         {@link #convert(ByteBuffer)} did not have underflow.
-	 */
-	public byte[] clearUnderflow() {
-		byte[] cleared = this.underflow;
-		this.underflow = null;
-		return cleared;
-	}
-
-	/**
 	 * Converts a char buffer to a byte buffer using the toCharset. This ignores
 	 * any existing underflow since the characters to convert are already
 	 * complete and known.
-	 * 
+	 *
 	 * @param from
 	 * @return - byte buffer, use {@link ByteBuffer#position()} for starting
-	 *         array offset, {@link ByteBuffer#limit()} for number of bytes to
-	 *         read, and {@link ByteBuffer#array()} for the byte[] itself.
+	 * array offset, {@link ByteBuffer#limit()} for number of bytes to
+	 * read, and {@link ByteBuffer#array()} for the byte[] itself.
+	 * @throws FileEncoderException
 	 */
-	public ByteBuffer convert(CharBuffer from) {
+	public ByteBuffer convert(CharBuffer from) throws FileEncoderException {
 		ByteBuffer converted = null;
 		try {
 
@@ -123,7 +105,7 @@ public class CharsetConverter {
 				// Java default to BE byte order, so we need to handle if native byte order is LE
 				if (ByteOrder.nativeOrder() == ByteOrder.LITTLE_ENDIAN) {
 					try {
-					    // Append BOM char and get the bytes in UTF-16LE encoding (manually add BOM)
+						// Append BOM char and get the bytes in UTF-16LE encoding (manually add BOM)
 						byte[] bytes = (bomChar + from.rewind().toString()).getBytes("UTF-16LE");
 						converted = ByteBuffer.wrap(bytes);
 						converted.order(ByteOrder.LITTLE_ENDIAN);
@@ -132,7 +114,7 @@ public class CharsetConverter {
 						throw new ClientError("Translation of file content failed", uee);
 					}
 				}
-				
+
 				// Ignore BOM if UTF-16 and not first call to convert
 				if (ignoreBOM) {
 					int limit = converted.limit();
@@ -161,112 +143,8 @@ public class CharsetConverter {
 			}
 		} catch (CharacterCodingException cce) {
 			Log.exception(cce);
-			throw new ClientError("Translation of file content failed", cce);
+			throw new FileEncoderException("Translation of file content failed", cce);
 		}
-		return converted;
-	}
-
-	/**
-	 * Convert a byte buffer by decoding using the fromCharset and encoding
-	 * using the toCharset. The byte buffer returned will have its position be
-	 * the array offset to use and the limit be the lenght of bytes to read from
-	 * the byte buffer's backing array.
-	 * 
-	 * Any remaining bytes that couldn't be converted are stored locally until
-	 * the next call to {@link #convert(ByteBuffer)}. The from buffer specified
-	 * will be joined with the underflow from a previous call on subsequent
-	 * calls to {@link #convert(ByteBuffer)}.
-	 * 
-	 * @param from
-	 *            - byte buffer to convert
-	 * @param lookahead
-	 *            - lookahead callback
-	 * @return - byte buffer, use {@link ByteBuffer#position()} for starting
-	 *         array offset, {@link ByteBuffer#limit()} for number of bytes to
-	 *         read, and {@link ByteBuffer#array()} for the byte[] itself.
-	 */
-	public ByteBuffer convert(ByteBuffer from, ILookahead lookahead) {
-		ByteBuffer converted = null;
-
-		// Check if there are any left over bytes that weren't converted from
-		// the last chunk
-		if (underflow != null) {
-			ByteBuffer joinedBuffer = ByteBuffer.allocate(from.array().length
-					+ underflow.length);
-			joinedBuffer.put(underflow);
-			joinedBuffer.put(from);
-			from = joinedBuffer;
-			from.rewind();
-			this.underflow = null;
-		}
-
-		CharBuffer sourceChars = CharBuffer.allocate(Math.round(decoder
-				.maxCharsPerByte()
-				* from.limit()) + 1);
-
-		decoder.decode(from, sourceChars, true);
-		sourceChars.flip();
-
-		if (lookahead != null && sourceChars.limit() > 0) {
-
-			// Get an array of bytes to attempt to convert
-			byte[] ahead = lookahead.bytesToAdd(sourceChars.charAt(sourceChars
-					.limit() - 1));
-
-			// Look until no more lookahead is triggered by callback
-			while (ahead != null && ahead.length > 0) {
-				byte[] next = null;
-
-				// Join lookahead with previous underflow from last call to
-				// decode if present
-				if (from.hasRemaining()) {
-					int remaining = from.remaining();
-					next = new byte[ahead.length + remaining];
-					from.get(next, 0, remaining);
-					System.arraycopy(ahead, 0, next, remaining, ahead.length);
-				} else {
-					next = ahead;
-				}
-
-				from = ByteBuffer.wrap(next);
-				// Create new char buffer with underflow + lookahead
-				CharBuffer aheadChars = CharBuffer.allocate(Math.round(decoder
-						.maxCharsPerByte()
-						* from.limit()) + 1);
-
-				// Decode underflow + lookahead
-				decoder.decode(from, aheadChars, true);
-				aheadChars.flip();
-
-				// If decoding produced at least one usable character than join
-				// with main char buffer and query for more lookahead based on
-				// new ending char in buffer
-				if (aheadChars.limit() > 0) {
-					CharBuffer joinedChars = CharBuffer.allocate(aheadChars
-							.limit()
-							+ sourceChars.limit());
-					joinedChars.put(sourceChars);
-					joinedChars.put(aheadChars);
-					sourceChars = joinedChars;
-					sourceChars.rewind();
-					ahead = lookahead.bytesToAdd(sourceChars.charAt(sourceChars
-							.limit() - 1));
-				} else {
-					// If no chars were decoded then break out of loop
-					ahead = null;
-				}
-			}
-		}
-
-		// Store any left over bytes for the next write chunk
-		if (from.hasRemaining()) {
-			byte[] leftOver = new byte[from.remaining()];
-			from.get(leftOver, 0, from.remaining());
-			this.underflow = leftOver;
-		}
-
-		// Encode back to byte buffer
-		converted = convert(sourceChars);
 		return converted;
 	}
 
@@ -275,20 +153,102 @@ public class CharsetConverter {
 	 * using the toCharset. The byte buffer returned will have its position be
 	 * the array offset to use and the limit be the length of bytes to read from
 	 * the byte buffer's backing array.
-	 * 
+	 * <p>
 	 * Any remaining bytes that couldn't be converted are stored locally until
 	 * the next call to {@link #convert(ByteBuffer)}. The from buffer specified
 	 * will be joined with the underflow from a previous call on subsequent
 	 * calls to {@link #convert(ByteBuffer)}.
-	 * 
-	 * @param from
-	 *            - byte buffer to convert
+	 *
+	 * @param from - byte buffer to convert
 	 * @return - byte buffer, use {@link ByteBuffer#position()} for starting
-	 *         array offset, {@link ByteBuffer#limit()} for number of bytes to
-	 *         read, and {@link ByteBuffer#array()} for the byte[] itself.
+	 * array offset, {@link ByteBuffer#limit()} for number of bytes to
+	 * read, and {@link ByteBuffer#array()} for the byte[] itself.
+	 * @throws FileEncoderException
+	 * @throws FileDecoderException
 	 */
-	public ByteBuffer convert(ByteBuffer from) {
-		return convert(from, null);
+	public ByteBuffer convert(ByteBuffer from) throws FileDecoderException, FileEncoderException {
+		if (CharsetDefs.UTF8.equals(decoder.charset())) {
+			from = getUtf8BufferWindow(from);
+		}
+
+		int size = from.limit() * 2;
+		CharBuffer sourceChars = CharBuffer.allocate(size);
+
+		CoderResult res = decoder.decode(from, sourceChars, true);
+		if (res.isError()) {
+			throw new FileDecoderException();
+		}
+
+		sourceChars.flip();
+
+		// Encode back to byte buffer
+		ByteBuffer converted = convert(sourceChars);
+		return converted;
 	}
 
+	/**
+	 * Returns a window into the buffer containing whole UTF8 words.  Split UTF8 multi byte words
+	 * falling over the buffer boundary are added to the remainder.
+	 *
+	 * @param buffer utf8 byte stream
+	 * @return whole utf8 words to convert.
+	 * @throws FileDecoderException
+	 */
+	private ByteBuffer getUtf8BufferWindow(ByteBuffer buffer) throws FileDecoderException {
+		// Add remainder from previous calculation
+		buffer = addRemainder(buffer);
+
+		// exit if buffer is empty.
+		int r = buffer.remaining();
+		if (r < 1) {
+			buffer.rewind();
+			return buffer;
+		}
+
+		// check last byte; exit with full buffer if SINGLE UTF8 byte
+		byte lastByte = buffer.get(r - 1);
+		Utf8ByteHelper type = Utf8ByteHelper.parse(lastByte);
+		if (Utf8ByteHelper.SINGLE.equals(type)) {
+			buffer.rewind();
+			return buffer;
+		}
+
+		// get end of buffer window and set limit
+		int end = Utf8ByteHelper.findBufferLimit(buffer);
+
+		// set remainder; set old limit and move to end
+		buffer.position(end);
+		r = buffer.remaining();
+		if (r > 0) {
+			remainder = ByteBuffer.allocate(r);
+			remainder.put(buffer);
+		}
+
+		// rewind and set new limit
+		buffer.rewind();
+		buffer.limit(end);
+		return buffer;
+	}
+
+	/**
+	 * Add the remaining bytes from the split UTF8 word to the start of the buffer
+	 *
+	 * @param buffer to be converted
+	 * @return new buffer with the remainder.
+	 */
+	private ByteBuffer addRemainder(ByteBuffer buffer) {
+		ByteBuffer combined;
+		if (remainder != null) {
+			remainder.clear();
+			int last = remainder.remaining();
+			combined = ByteBuffer.allocate(last + buffer.remaining());
+			combined.put(remainder);
+			combined.put(buffer);
+			remainder = null;
+			combined.rewind();
+			return combined;
+		} else {
+			return buffer;
+		}
+	}
 }

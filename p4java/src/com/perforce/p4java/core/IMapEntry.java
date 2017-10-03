@@ -68,17 +68,14 @@ public interface IMapEntry {
 		 * return "-" or "+" respectively. Returns the empty string
 		 * (not null) if the type is neither EXCLUDE nor OVERLAY.
 		 */
-		@Override
 		public String toString() {
 			switch (this) {
 				case EXCLUDE:
 					return EXCLUDE_PREFIX;
 				case OVERLAY:
 					return OVERLAY_PREFIX;
-				// p4ic4idea: explicitly return on default case.
-				default:
-					return "";
 			}
+			return "";
 		}
 	};
 	
@@ -175,7 +172,6 @@ public interface IMapEntry {
     /**
      * Alias for toString(" ", false).
      */
-    @Override
     String toString();
     
     /**

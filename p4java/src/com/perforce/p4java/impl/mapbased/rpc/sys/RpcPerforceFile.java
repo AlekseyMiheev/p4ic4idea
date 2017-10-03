@@ -37,6 +37,7 @@ public class RpcPerforceFile extends File {
 	private RpcPerforceFileType fileType = null;
 	private ClientLineEnding lineEnding = null;
 
+
 	// p4ic4idea: a version that never returns null.
 	public static String createNotNullTempFileName(String tmpDirName)
 			throws IOException {
@@ -53,7 +54,7 @@ public class RpcPerforceFile extends File {
 				tmpDir);
 		return tmpFile.getPath();
 	}
-	
+
 	public static String createTempFileName(String tmpDirName) {
 		try {
 			return createNotNullTempFileName(tmpDirName);
@@ -64,7 +65,8 @@ public class RpcPerforceFile extends File {
 			return null;
 		}
 	}
-	
+
+
 	public RpcPerforceFile(String fileName, String fileTypeStr) {
 		super(fileName);
 		if (fileName == null) {
@@ -77,7 +79,7 @@ public class RpcPerforceFile extends File {
 		this.lineEnding = ClientLineEnding.decodeFromServerString(
 								fileTypeStr, this.fileType);
 	}
-	
+
 	public RpcPerforceFile(String fileName, RpcPerforceFileType fileType) {
 		super(fileName);
 		if (fileName == null) {
@@ -88,6 +90,19 @@ public class RpcPerforceFile extends File {
 
 		this.fileType = fileType;
 		this.lineEnding = ClientLineEnding.FST_L_LOCAL;
+	}
+
+	public RpcPerforceFile(String fileName, RpcPerforceFileType fileType,
+			ClientLineEnding lineEnding) {
+		super(fileName);
+		if (fileName == null) {
+			// We don't need or want (much less expect) null paths in the API:
+			throw new NullPointerError(
+					"Null file name passed to RpcPerforceFile constructor");
+		}
+
+		this.fileType = fileType;
+		this.lineEnding = lineEnding;
 	}
 	
 	/**
@@ -270,7 +285,7 @@ public class RpcPerforceFile extends File {
 	}
 
 	/**
-	 * @see java.io.File#equals(Object)
+	 * @see java.io.File#equals()
 	 */
 	@Override
     public boolean equals(Object obj) {

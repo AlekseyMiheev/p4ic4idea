@@ -3,9 +3,6 @@
  */
 package com.perforce.p4java.core;
 
-import com.perforce.p4java.Log;
-
-
 /**
  * Defines an individual file path in the stream view. Each view mapping is of
  * the form:

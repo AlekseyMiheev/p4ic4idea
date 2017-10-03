@@ -115,7 +115,7 @@ public class ChangelistSummary extends ServerResource implements IChangelistSumm
 				try {
 					// Note use of lower-case keys here; this is the only
 					// place lower-case fields are used for this...
-					
+
 					this.id = new Integer((String) map.get("change"));
 					this.clientId = (String) map.get("client");
 					this.username = (String) map.get("user");
@@ -127,7 +127,9 @@ public class ChangelistSummary extends ServerResource implements IChangelistSumm
 					if (map.containsKey("changeType")) {
 						this.visibility = Visibility.fromString(((String) map.get("changeType")).toUpperCase());
 					}
-				} catch (Throwable thr) {
+				// p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+				//} catch (Throwable thr) {
+				} catch (Exception thr)	{
 					Log.error("Unexpected exception in ChangelistSummary constructor: "
 							+ thr.getLocalizedMessage());
 					Log.exception(thr);
@@ -174,7 +176,9 @@ public class ChangelistSummary extends ServerResource implements IChangelistSumm
 					if (map.containsKey("Type")) {
 						this.visibility = Visibility.fromString(((String) map.get("Type")).toUpperCase());
 					}
-				} catch (Throwable thr) {
+				// p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+				//} catch (Throwable thr) {
+				} catch (Exception thr) {
 					Log.error("Unexpected exception in ChangelistSummary constructor: "
 							+ thr.getLocalizedMessage());
 					Log.exception(thr);

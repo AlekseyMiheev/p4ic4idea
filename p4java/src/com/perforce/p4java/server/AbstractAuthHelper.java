@@ -1,122 +1,138 @@
-/**
- * Copyright (c) 2012 Perforce Software.  All rights reserved.
- */
 package com.perforce.p4java.server;
-
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileReader;
-import java.io.IOException;
-import java.io.PrintWriter;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 import com.perforce.p4java.Log;
 import com.perforce.p4java.impl.generic.sys.ISystemFileCommandsHelper;
 import com.perforce.p4java.impl.mapbased.rpc.sys.helper.SysFileHelperBridge;
 import com.perforce.p4java.util.FilesHelper;
+import com.perforce.p4java.util.compat.Jdk7Nonnull;
+import com.perforce.p4java.util.compat.Jdk7Nullable;
+import com.perforce.p4java.util.compat.NioFiles;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.RandomAccessFile;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
+
+import static com.perforce.p4java.common.base.ObjectUtils.isNull;
+import static com.perforce.p4java.common.base.ObjectUtils.nonNull;
+import static com.perforce.p4java.common.base.P4JavaExceptions.throwIOException;
+import static com.perforce.p4java.common.base.StringHelper.format;
+import static com.perforce.p4java.util.compat.StringUtils.EMPTY;
+import static com.perforce.p4java.util.compat.StringUtils.indexOf;
+import static com.perforce.p4java.util.compat.StringUtils.isNotBlank;
+import static com.perforce.p4java.util.compat.StringUtils.lastIndexOf;
+import static com.perforce.p4java.util.compat.StringUtils.startsWith;
+import static com.perforce.p4java.util.compat.StringUtils.substring;
 
 /**
  * This super class is designed to lookup auth entries from file or memory.
- * 
  */
 public abstract class AbstractAuthHelper {
 
+	public static final int DEFAULT_LOCK_TRY = 100; // 100 tries
+	public static final long DEFAULT_LOCK_DELAY = 300000; // 300 seconds delay
+	// time
+	public static final long DEFAULT_LOCK_WAIT = 1; // 1 millisecond wait time
 	protected static final String SERVER_ADDRESS_MAP_KEY = "serverAddress";
 	protected static final String USER_NAME_MAP_KEY = "userName";
 	protected static final String AUTH_VALUE_MAP_KEY = "authValue";
 
-	public static final int DEFAULT_LOCK_TRY = 100; // 100 tries
-	public static final long DEFAULT_LOCK_DELAY = 300000; // 300 seconds delay time
-	public static final long DEFAULT_LOCK_WAIT = 1000; // 1 second wait time
-	
+	private final static Object lock = new Object();
+
 	/**
 	 * Get the auth entry in the specified auth map that matches the specified
 	 * user name and server address. The user name be non-null and the server
 	 * address must be non-null and be of the form server:port.
-	 * 
-	 * @param authMap
+	 *
 	 * @return - list of auth entries found in the specified auth map
 	 */
-	protected static synchronized Map<String, String> getMemoryEntry(String userName, String serverAddress, Map<String, String> authMap) {
-		Map<String, String> entryMap = null;
-		if (userName != null && serverAddress != null && authMap != null) {
+	protected static Map<String, String> getMemoryEntry(final String userName, final String serverAddress,
+	                                                    final Map<String, String> authMap) {
+
+		String p4Port = serverAddress;
+		Map<String, String> entryMap = new ConcurrentHashMap<String, String>();
+		if (isNotBlank(userName) && isNotBlank(serverAddress) && nonNull(authMap)) {
 			if (serverAddress.lastIndexOf(':') == -1) {
-				serverAddress = "localhost:" + serverAddress;
+				p4Port = "localhost:" + serverAddress;
 			}
-			String prefix = serverAddress + "=" + userName;
+			String prefix = p4Port + "=" + userName;
 			if (authMap.containsKey(prefix)) {
 				String authValue = authMap.get(prefix);
-				entryMap = new HashMap<String,String>();
-				entryMap.put(SERVER_ADDRESS_MAP_KEY, serverAddress);
+				entryMap.put(SERVER_ADDRESS_MAP_KEY, p4Port);
 				entryMap.put(USER_NAME_MAP_KEY, userName);
 				entryMap.put(AUTH_VALUE_MAP_KEY, authValue);
 			}
 		}
-		return entryMap;	
+		return entryMap;
 	}
 
 	/**
 	 * Get all the auth entries found in the specified auth store in memory.
-	 * 
-	 * @param authMap
+	 *
 	 * @return - list of auth entries found in the specified auth map
 	 */
-	protected static synchronized List<Map<String, String>> getMemoryEntries(Map<String, String> authMap) {
-		List<Map<String, String>> authList = new ArrayList<Map<String, String>>();
-		if (authMap != null) {
+	protected static List<Map<String, String>> getMemoryEntries(final Map<String, String> authMap) {
+		List<Map<String, String>> authList = new CopyOnWriteArrayList<Map<String, String>>();
+		if (nonNull(authMap)) {
 			for (Map.Entry<String, String> entry : authMap.entrySet()) {
-			    String line = entry.getKey() + ":" + entry.getValue();
+				String line = entry.getKey() + ":" + entry.getValue();
 				// Auth entry pattern is:
 				// server_address=user_name:auth_value
 				int equals = line.indexOf('=');
-				if (equals != -1) {
-					int colon = line.indexOf(':', equals);
-					if (colon != -1 && colon + 1 < line.length()) {
-						String serverAddress = line.substring(0,
-								equals);
-						String userName = line.substring(equals + 1,
-								colon);
-						String authValue = line
-								.substring(colon + 1);
-						Map<String,String> entryMap = new HashMap<String,String>();
-						entryMap.put(SERVER_ADDRESS_MAP_KEY, serverAddress);
-						entryMap.put(USER_NAME_MAP_KEY, userName);
-						entryMap.put(AUTH_VALUE_MAP_KEY, authValue);
-						authList.add(entryMap);
-					}
-				}
+				popularAuthEntry(equals, line, authList);
 			}
 		}
 		return authList;
 	}
 
-	/**
-	 * Save the specified parameters as an entry into the specified auth
-	 * map. This method will add or replace the current entry for the user name
-	 * and server address in the auth map. If the specified auth value is null
-	 * then the current entry (if exits) in the specified map will be removed.
-	 * 
-	 * @param userName
-	 *            - non-null user name
-	 * @param serverAddress
-	 *            - non-null server address
-	 * @param authValue
-	 *            - possibly null auth value
-	 * @param authMap
-	 *            - non-null auth map
-	 */
-	protected static synchronized void saveMemoryEntry(String userName, String serverAddress,
-			String authValue, Map<String, String> authMap) {
-		if (userName != null && serverAddress != null && authMap != null) {
-			if (serverAddress.lastIndexOf(':') == -1) {
-				serverAddress = "localhost:" + serverAddress;
+	private static void popularAuthEntry(final int equals, final String line,
+	                                     final List<Map<String, String>> authList) {
+
+		if (equals != -1) {
+			int colon = indexOf(line, ':', equals);
+			if (colon != -1 && colon + 1 < line.length()) {
+				String serverAddress = substring(line, 0, equals);
+				String userName = substring(line, equals + 1, colon);
+				String authValue = substring(line, colon + 1);
+				Map<String, String> map = new ConcurrentHashMap<String, String>();
+				map.put(SERVER_ADDRESS_MAP_KEY, serverAddress);
+				map.put(USER_NAME_MAP_KEY, userName);
+				map.put(AUTH_VALUE_MAP_KEY, authValue);
+				authList.add(map);
 			}
-			String prefix = serverAddress + "=" + userName;
-			if (authValue != null) { // save entry
+		}
+	}
+
+	/**
+	 * Save the specified parameters as an entry into the specified auth map.
+	 * This method will add or replace the current entry for the user name and
+	 * server address in the auth map. If the specified auth value is null then
+	 * the current entry (if exits) in the specified map will be removed.
+	 *
+	 * @param userName      - non-null user name
+	 * @param serverAddress - non-null server address
+	 * @param authValue     - possibly null auth value
+	 * @param authMap       - non-null auth map
+	 */
+	protected static void saveMemoryEntry(final String userName, final String serverAddress, final String authValue,
+	                                      final Map<String, String> authMap) {
+
+		if (isNotBlank(userName) && isNotBlank(serverAddress) && nonNull(authMap)) {
+			String p4Port = serverAddress;
+			if (serverAddress.lastIndexOf(':') == -1) {
+				p4Port = "localhost:" + serverAddress;
+			}
+			String prefix = p4Port + "=" + userName;
+			if (isNotBlank(authValue)) { // save entry
 				authMap.put(prefix, authValue);
 			} else {
 				if (authMap.containsKey(prefix)) { // delete entry
@@ -125,241 +141,255 @@ public abstract class AbstractAuthHelper {
 			}
 		}
 	}
-	
+
 	/**
 	 * Get all the auth entries found in the specified auth file.
-	 * 
-	 * @param authFile
+	 *
 	 * @return - list of auth entries found in the specified auth file
-	 * @throws IOException
-	 *             - io exception from reading auth file
+	 * @throws IOException - io exception from reading auth file
 	 */
-	protected static synchronized List<Map<String, String>> getFileEntries(File authFile) throws IOException {
-		List<Map<String, String>> authList = new ArrayList<Map<String, String>>();
-		if (authFile != null && authFile.exists()) {
-			BufferedReader reader = new BufferedReader(new FileReader(
-					authFile));
+	protected static List<Map<String, String>> getFileEntries(final File authFile) throws IOException {
+
+		List<Map<String, String>> authList = new CopyOnWriteArrayList<Map<String, String>>();
+		if (nonNull(authFile) && authFile.exists()) {
+
+			BufferedReader reader = null;
 			try {
+                reader = new BufferedReader(new FileReader(authFile));
 				String line = reader.readLine();
 				while (line != null) {
 					// Auth entry pattern is:
 					// server_address=user_name:auth_value
-					int equals = line.indexOf('=');
-					if (equals != -1) {
-						int colon = line.indexOf(':', equals);
-						if (colon != -1 && colon + 1 < line.length()) {
-							String serverAddress = line.substring(0,
-									equals);
-							String userName = line.substring(equals + 1,
-									colon);
-							String authValue = line
-									.substring(colon + 1);
-							Map<String,String> map = new HashMap<String,String>();
-							map.put(SERVER_ADDRESS_MAP_KEY, serverAddress);
-							map.put(USER_NAME_MAP_KEY, userName);
-							map.put(AUTH_VALUE_MAP_KEY, authValue);
-							authList.add(map);
-						}
-					}
+					int equals = indexOf(line, '=');
+					popularAuthEntry(equals, line, authList);
 					line = reader.readLine();
 				}
 			} finally {
-				reader.close();
-			}
+			    if (reader != null) {
+			        reader.close();
+                }
+            }
 		}
 		return authList;
 	}
 
 	/**
-	 * Save the specified parameters as an entry into the specified auth
-	 * file. This method will replace the current entry for the user name and
-	 * server address in the auth file. If a current entry is not found then
-	 * the specified entry will be appended to the file. If the specified auth
-	 * value is null then the current entry in the specified file will be
-	 * removed if found.
-	 * 
-	 * @param userName
-	 *            - non-null user name
-	 * @param serverAddress
-	 *            - non-null server address
-	 * @param authValue
-	 *            - possibly null auth value
-	 * @param authFile
-	 *            - non-null file
-	 * @throws IOException
+	 * Save the specified parameters as an entry into the specified auth file.
+	 * This method will replace the current entry for the user name and server
+	 * address in the auth file. If a current entry is not found then the
+	 * specified entry will be appended to the file. If the specified auth value
+	 * is null then the current entry in the specified file will be removed if
+	 * found.
+	 *
+	 * @param userName      - non-null user name
+	 * @param serverAddress - non-null server address
+	 * @param authValue     - possibly null auth value
+	 * @param authFile      - non-null file
 	 */
-	protected static synchronized void saveFileEntry(String userName, String serverAddress,
-			String authValue, File authFile, int lockTry, long lockDelay, long lockWait) throws IOException {
-		if (userName != null && serverAddress != null && authFile != null) {
-			// Create parent directories if necessary
-			if (!authFile.exists()) {
-				FilesHelper.mkdirs(authFile);
-			}
-			// Create lock file
-			File lockFile = new File(authFile.getAbsolutePath() + ".lck");
-			if (!createLockFile(lockFile, lockTry, lockDelay, lockWait)) {
-				return;
-			}
-			
-			if (serverAddress.lastIndexOf(':') == -1) {
-				serverAddress = "localhost:" + serverAddress;
-			}
-			String prefix = serverAddress + "=" + userName + ":";
-			String value = null;
-			if (authValue != null) {
-				value = prefix + authValue;
-			}
-			BufferedReader reader = null;
-			try {
-				reader = new BufferedReader(new FileReader(authFile));
-			} catch (FileNotFoundException fnfe) {
-				// File is non-existent or not readable so ignored contents
-				reader = null;
-			}
+	protected static void saveFileEntry(final String userName, final String serverAddress, final String authValue,
+	                                    final File authFile, final int lockTry, final long lockDelay, final long lockWait) throws IOException {
 
-			// Put contents in temp file
-			File tempAuth = File.createTempFile("p4auth", ".txt");
-			PrintWriter writer = new PrintWriter(tempAuth, "utf-8");
-			boolean renamed = false;
+		if (isNotBlank(userName) && isNotBlank(serverAddress) && nonNull(authFile)) {
+			String p4Port = firstMatch(lastIndexOf(serverAddress, ':') == -1, "localhost:" + serverAddress,
+					serverAddress);
 
-			try {
-				boolean processed = false;
+			//Path authFilePath = authFile.toPath();
+			File authFilePath = authFile;
 
-				// Only add current auth file content if a reader was
-				// successfully created
-				if (reader != null) {
-					String line = reader.readLine();
-					while (line != null) {
-						// Replace existing entry in the auth file
-						if (!processed && line.startsWith(prefix)) {
-							// value being null means that the entry should be
-							// removed
-							if (value != null) {
-								writer.println(value);
-							}
-							processed = true;
-						} else {
-							writer.println(line);
+			synchronized (lock) {
+				if (NioFiles.notExists(authFilePath)) {
+					NioFiles.createDirectories(authFilePath.getParent());
+					createFileIgnoreIfFileAlreadyExists(authFilePath);
+				}
+				File lockFile = createLockFileIfNotExist(authFile);
+				boolean locked = false;
+                RandomAccessFile lockFileRandomAccessor = null;
+                FileChannel fileChannel = null;
+                FileLock lock = null;
+                try {
+                    lockFileRandomAccessor = new RandomAccessFile(lockFile, "rw");
+                    fileChannel = lockFileRandomAccessor.getChannel();
+                    lock = tryLockFile(fileChannel, lockFile, lockTry, lockWait);
+
+					if (nonNull(lock) && lock.isValid()) {
+						locked = true;
+						String authValuePrefix = format("%s=%s:", p4Port, userName);
+						String newAuthValue = firstMatch(isNotBlank(authValue), authValuePrefix + authValue, EMPTY);
+
+						try {
+							readAuthFileContentPlusNewAuthValueAndWriteToTempAuthFile(authFile, authValuePrefix,
+									newAuthValue);
+							updateReadBit(authFile);
+						} catch (IOException e) {
+							e.printStackTrace();
+							throwIOException(e, "P4TICKETS file: %s could not be overwritten.",
+									authFile.getAbsolutePath());
 						}
-						line = reader.readLine();
-					}
-				}
-				if (!processed && value != null) {
-					writer.println(value);
-				}
-			} finally {
-				writer.flush();
-				writer.close();
-				if (reader != null) {
-					try {
-						reader.close();
-					} catch (IOException e) {
-						// ignore
-					}
-				}
-				try {
-					// Rename to original auth file if no exceptions occur
-					renamed = tempAuth.renameTo(authFile);
-					if (!renamed) {
-						// If a straight up rename fails then try to copy the new
-						// auth file into the current p4 auth file. This seems to
-						// happen on windows.
-						renamed = FilesHelper.copy(tempAuth, authFile);
+
+						// Update read bit of actual auth file
+						updateReadBit(authFile);
 					}
 				} finally {
-					if (tempAuth.exists()) {
-						if (!tempAuth.delete()) {
-							Log.warn("Unable to delete temp auth file '"
-									+ tempAuth.getPath()
-									+ "' in AbstractAuthHelper.saveFileEntry() -- unknown cause");
-						}
-					}
-				}
-				// Delete lock file
-				if (lockFile != null) {
-					if (lockFile.exists()) {
-						if (!lockFile.delete()) {
-							lockFile.deleteOnExit();
-							Log.error("Error deleting auth lock file: "
-									+ lockFile.getAbsolutePath());
-						}
+                    if (lockFileRandomAccessor != null) {
+                        lockFileRandomAccessor.close();;
+                    }
+                    if (fileChannel != null) {
+                        fileChannel.close();
+                    }
+                    if (lock != null) {
+                        lock.release();
+                    }
+					if (locked) {
+						NioFiles.deleteIfExists(lockFile);
 					}
 				}
 			}
-
-			// Update read bit of actual auth file
-			updateReadBit(authFile);
-
-			if (!renamed) {
-				throw new IOException("P4 auth file: "
-						+ authFile.getAbsolutePath()
-						+ " could not be overwritten.");
-			}
-
 		}
 	}
 
-	private static void updateReadBit(File file) throws IOException {
-		if (file != null) {
+	private static void createFileIgnoreIfFileAlreadyExists(File filePath) throws IOException {
+		if (!NioFiles.exists(filePath)) {
+			NioFiles.createFile(filePath);
+		}
+	}
+
+	private static File createLockFileIfNotExist(@Jdk7Nonnull final File authFile) throws IOException {
+		File lockFile = new File(authFile.getAbsolutePath() + ".lck");
+		//Path lockFilePath = lockFile.toPath();
+		File lockFilePath = lockFile;
+		createFileIgnoreIfFileAlreadyExists(lockFilePath);
+
+		return lockFile;
+	}
+
+	private static void readAuthFileContentPlusNewAuthValueAndWriteToTempAuthFile(final File authFile,
+	                                                                              final String authValuePrefix, final String newAuthValue) throws IOException {
+
+		File tempAuth = File.createTempFile("p4auth_" + System.currentTimeMillis(), ".txt");
+		BufferedReader reader = null;
+		try {
+			reader = new BufferedReader(new FileReader(authFile));
+			PrintWriter writer = null;
+			try {
+				writer = new PrintWriter(tempAuth, "utf-8");
+
+				boolean processed = false;
+				// Only add current auth file content if a reader was
+				// successfully created
+				String possibleValidAuthValue;
+				while ((possibleValidAuthValue = reader.readLine()) != null) {
+					boolean isExistingAuthValueEntry = !processed && startsWith(possibleValidAuthValue, authValuePrefix);
+					if (isExistingAuthValueEntry) {
+						// newAuthValue being null means that the entry should be
+						// removed
+						if (isNotBlank(newAuthValue)) {
+							writer.println(newAuthValue);
+						}
+						processed = true;
+					} else {
+						writer.println(possibleValidAuthValue);
+					}
+				}
+				if (!processed && isNotBlank(newAuthValue)) {
+					writer.println(newAuthValue);
+				}
+				writer.flush();
+			} finally {
+				if (writer != null) {
+					writer.close();
+				}
+			}
+		} finally {
+			if (reader != null) {
+				reader.close();
+			}
+		}
+
+		if (authFile.exists()) {
+			authFile.setWritable(true);
+		}
+
+		try {
+			NioFiles.move(tempAuth, authFile, NioFiles.StandardCopyOption.REPLACE_EXISTING, NioFiles.StandardCopyOption.ATOMIC_MOVE);
+		} catch (Exception e) {
+			if (!FilesHelper.copy(tempAuth, authFile)) {
+				throwIOException("P4 auth file: %s could not be overwritten.", authFile.getAbsolutePath());
+			}
+		}
+	}
+
+	private static FileLock tryLockFile(@Jdk7Nullable final FileChannel lockFileChannel, @Jdk7Nonnull final File lockFile,
+	                                    final int lockTry, final long lockWait) throws IOException {
+
+		int lockTries = firstMatch(lockTry < 1, DEFAULT_LOCK_TRY, lockTry);
+		long lockWaits = firstMatch(lockWait < 1, DEFAULT_LOCK_WAIT, lockWait);
+
+		String currentThreadName = Thread.currentThread().getName();
+
+		FileLock fileLock = null;
+		if (nonNull(lockFileChannel)) {
+			do {
+				try {
+					Log.info("-----%s thread try to get lock", currentThreadName);
+					fileLock = lockFileChannel.tryLock();
+					if (fileLock.isValid()) {
+						Log.info("=====%s thread get lock successfully\r\n", currentThreadName);
+					}
+
+					if (isNull(fileLock)) {
+						System.out.println("did not get the lock");
+					}
+				} catch (IllegalStateException e) {
+					// ignore, means locked by other process at this moment
+				}
+
+				if (nonNull(fileLock) && fileLock.isValid()) {
+					break;
+				} else {
+					if (lockFile.lastModified() > 0) {
+						try {
+							Log.info("-----%s thread put to sleep, and it will retry lock %s times", currentThreadName,
+									lockTries - 1);
+							TimeUnit.SECONDS.sleep(lockWaits);
+						} catch (InterruptedException e) {
+							Log.error("Error waiting for auth lock file: %s", e.getLocalizedMessage());
+						}
+					}
+				}
+			} while (lockTries-- > 0);
+
+			if (isNull(fileLock) || !fileLock.isValid()) {
+				throwIOException("Error creating new auth lock file \"%s\" after retries: %s",
+						lockFile.getAbsolutePath(), lockTry);
+			}
+		}
+
+		return fileLock;
+	}
+
+	private static <T> T firstMatch(boolean expression, T first, T second) {
+		if (expression) {
+			return first;
+		} else {
+			return second;
+		}
+	}
+
+	private static void updateReadBit(@Jdk7Nullable final File file) throws IOException {
+		if (nonNull(file)) {
 			// The goal is to set the file permissions bits to only have owner
 			// read set (-r-------- or 400) but currently
 			// java.io.File.setReadOnly may leave the group and other read bits
 			// set. Try to leverage the registered helper to clear the remaining
 			// read bits.Document this in the release notes.
 			file.setReadOnly();
-			ISystemFileCommandsHelper helper = ServerFactory
-					.getRpcFileSystemHelper();
-			if (helper == null) {
+			ISystemFileCommandsHelper helper = ServerFactory.getRpcFileSystemHelper();
+			if (isNull(helper)) {
 				helper = SysFileHelperBridge.getSysFileCommands();
 			}
-			if (helper != null) {
+			if (nonNull(helper)) {
 				helper.setOwnerReadOnly(file.getAbsolutePath());
 			}
 		}
-	}
-	
-	private static boolean createLockFile(File lockFile, int lockTry, long lockDelay, long lockWait) {
-		lockTry = lockTry < 1 ? DEFAULT_LOCK_TRY : lockTry;
-		lockDelay = lockDelay < 1 ? DEFAULT_LOCK_DELAY : lockDelay;
-		lockWait = lockWait < 1 ? DEFAULT_LOCK_WAIT : lockWait;
-		
-		if (lockFile != null) {
-			while (lockTry-- > 0) {
-				// Lock file exists
-				if (lockFile.lastModified() > 0) {
-					// Delete "old" lock file
-					if ((System.currentTimeMillis() - lockFile.lastModified()) > lockDelay) {
-						if (!lockFile.delete()) {
-							lockFile.deleteOnExit();
-							Log.error("Error deleting auth lock file: "
-									+ lockFile.getAbsolutePath());
-							return false;
-						}
-					} else { // Lock file is "new", so wait for other process/thread to finish with it
-						try {
-							Thread.sleep(lockWait);
-						} catch (InterruptedException e) {
-							Log.error("Error waiting for auth lock file: "
-									+ e.getLocalizedMessage());
-						}
-					}
-				} else { // Lock file doesn't exist, so create it
-					try {
-						if (lockFile.createNewFile()) {
-							return true;
-						}
-					} catch (IOException e) {
-						Log.error("Error creating new auth lock file: "
-								+ lockFile.getAbsolutePath() + ": "
-								+ e.getLocalizedMessage());
-					}
-				}
-			}
-			// Too many retries
-			Log.error("Error creating new auth lock file after retries: "
-					+ lockFile.getAbsolutePath());
-		}
-		
-		return false;
 	}
 }

@@ -27,6 +27,7 @@ import com.perforce.p4java.impl.generic.client.ClientView;
 import com.perforce.p4java.impl.mapbased.MapKeys;
 import com.perforce.p4java.option.server.StreamOptions;
 import com.perforce.p4java.server.IOptionsServer;
+import com.perforce.p4java.server.IServer;
 
 /**
  * Simple default implementation class for the IStream interface.
@@ -500,7 +501,7 @@ public class Stream extends StreamSummary implements IStream {
 	 * Construct a Stream from a map passed back from the Perforce server in
 	 * response to a getStream command.
 	 */
-	public Stream(Map<String, Object> map, IOptionsServer server) {
+	public Stream(Map<String, Object> map, IServer server) {
 		super(map, false);
 
 		this.server = server;
@@ -534,7 +535,9 @@ public class Stream extends StreamSummary implements IStream {
 								new StreamViewMapping(i, type,
 										matchStrs[0], matchStrs[1]));
 
-					} catch (Throwable thr) {
+					// p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+					// } catch (Throwable thr) {
+					} catch (Exception thr) {
 						Log.error("Unexpected exception in Stream map-based constructor: "
 								+ thr.getLocalizedMessage());
 						Log.exception(thr);
@@ -555,7 +558,9 @@ public class Stream extends StreamSummary implements IStream {
 								new StreamRemappedMapping(i, matchStrs[0],
 										matchStrs[1]));
 
-					} catch (Throwable thr) {
+					// p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+					// } catch (Throwable thr) {
+					} catch (Exception thr) {
 						Log.error("Unexpected exception in Stream map-based constructor: "
 								+ thr.getLocalizedMessage());
 						Log.exception(thr);
@@ -572,7 +577,9 @@ public class Stream extends StreamSummary implements IStream {
 						this.ignoredView.getEntryList().add(
 								new StreamIgnoredMapping(i, path));
 
-					} catch (Throwable thr) {
+					// p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+					// } catch (Throwable thr) {
+					} catch (Exception thr) {
 						Log.error("Unexpected exception in Stream map-based constructor: "
 								+ thr.getLocalizedMessage());
 						Log.exception(thr);
@@ -589,7 +596,9 @@ public class Stream extends StreamSummary implements IStream {
 						this.clientView.getEntryList().add(
 								new ClientView.ClientViewMapping(i, path));
 
-					} catch (Throwable thr) {
+					// p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+					// } catch (Throwable thr) {
+					} catch (Exception thr) {
 						Log.error("Unexpected exception in Stream map-based constructor: "
 								+ thr.getLocalizedMessage());
 						Log.exception(thr);
@@ -607,7 +616,9 @@ public class Stream extends StreamSummary implements IStream {
 						String tagValue = (String)map.get(tagName);
 						this.extraTags.add(new ExtraTag(tagName, tagType, tagValue));
 
-					} catch (Throwable thr) {
+					// p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+					// } catch (Throwable thr) {
+					} catch (Exception thr) {
 						Log.error("Unexpected exception in Stream map-based constructor: "
 								+ thr.getLocalizedMessage());
 						Log.exception(thr);
@@ -677,7 +688,7 @@ public class Stream extends StreamSummary implements IStream {
 					this.extraTags = refreshedStream.getExtraTags();
 				}
 			} catch (P4JavaException exc) {
-				throw new RequestException(exc.getMessage(), exc);
+				throw new RequestException(exc);
 			}
 		}
 		updateFlags();
@@ -691,7 +702,7 @@ public class Stream extends StreamSummary implements IStream {
 		try {
 			((IOptionsServer)this.server).updateStream(this, null);
 		} catch (P4JavaException exc) {
-			throw new RequestException(exc.getMessage(), exc);
+			throw new RequestException(exc);
 		}
 	}
 
@@ -702,7 +713,7 @@ public class Stream extends StreamSummary implements IStream {
 		try {
 			((IOptionsServer)this.server).updateStream(this, new StreamOptions().setForceUpdate(force));
 		} catch (P4JavaException exc) {
-			throw new RequestException(exc.getMessage(), exc);
+			throw new RequestException(exc);
 		}
 	}
 

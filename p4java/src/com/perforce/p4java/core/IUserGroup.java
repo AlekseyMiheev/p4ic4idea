@@ -77,26 +77,32 @@ public interface IUserGroup extends IServerResource {
 	
 	/**
 	 * Get the maximum lock time for queries by members of this group.
+     * @return max lock time - milliseconds
 	 */
 	int getMaxLockTime();
 	
 	/**
 	 * Set the maximum lock time for queries by members of this group.
+     * @param maxLockTimeOfMilliSeconds - milliseconds
 	 */
-	void setMaxLockTime(int maxLockTime);
+	void setMaxLockTime(int maxLockTimeOfMilliSeconds);
 	
 	/**
 	 * Get the timeout value for commands by members of this group.
+     * @return seconds
 	 */
 	int getTimeout();
 	
 	/**
 	 * Set the timeout value for commands by members of this group.
+     * @param timeoutOfSeconds - seconds
 	 */
-	void setTimeout(int timeout);
+	void setTimeout(int timeoutOfSeconds);
 	
 	/**
 	 * Get the password timeout value associated with this user group.
+     *
+     * @return max password time out - seconds
 	 * 
 	 * @since 2011.1
 	 */
@@ -104,10 +110,12 @@ public interface IUserGroup extends IServerResource {
 	
 	/**
 	 * Set the password timeout value associated with this user group.
+     *
+     * @param passwordTimeoutOfSeconds - seconds
 	 * 
 	 * @since 2011.1
 	 */
-	void setPasswordTimeout(int passwordTimeout);
+	void setPasswordTimeout(int passwordTimeoutOfSeconds);
 	
 	/**
 	 * Return true if this group is a sub group of another group on this server.<p>

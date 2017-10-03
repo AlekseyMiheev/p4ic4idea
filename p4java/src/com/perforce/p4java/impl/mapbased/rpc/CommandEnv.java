@@ -14,6 +14,7 @@ import com.perforce.p4java.impl.mapbased.rpc.connection.RpcConnection;
 import com.perforce.p4java.impl.mapbased.rpc.func.proto.ProtocolCommand;
 import com.perforce.p4java.impl.mapbased.rpc.packet.helper.RpcPacketFieldRule;
 import com.perforce.p4java.server.callback.IFilterCallback;
+import com.perforce.p4java.server.callback.IParallelCallback;
 import com.perforce.p4java.server.callback.IProgressCallback;
 import com.perforce.p4java.server.callback.IStreamingCallback;
 
@@ -100,7 +101,12 @@ public class CommandEnv {
 			this.map = map;
 		}
 	}
-		
+
+	/**
+	 * The parent server object
+	 */
+	private RpcServer server = null;
+	
 	/**
 	 * The current user function that started this all...
 	 */
@@ -149,6 +155,8 @@ public class CommandEnv {
 	private int streamingCallbackKey = 0;
 	
 	private IFilterCallback filterCallback = null;
+	
+	private IParallelCallback parallelCallback = null;
 
 	/**
 	 * The Perforce RPC connection in use for this command.
@@ -157,13 +165,14 @@ public class CommandEnv {
 	
 	private boolean userCanceled = false; // true if the user tried to cancel the command
 	
-	public CommandEnv(RpcCmdSpec cmdSpec, RpcConnection rpcConnection,
+	public CommandEnv(RpcServer server, RpcCmdSpec cmdSpec, RpcConnection rpcConnection,
 									ProtocolCommand protocolSpecs,
 									Map<String, Object> serverProtocolSpecsMap,
 									IProgressCallback progressCallback,
 									int cmdCallBackKey,
 									boolean syncInPlace,
 									boolean nonCheckedSyncs) {
+		this.server = server;
 		this.cmdSpec = cmdSpec;
 		this.rpcConnection = rpcConnection;
 		this.protocolSpecs = protocolSpecs;
@@ -374,5 +383,17 @@ public class CommandEnv {
 
 	public void setFilterCallback(IFilterCallback filterCallback) {
 		this.filterCallback = filterCallback;
+	}
+
+	public IParallelCallback getParallelCallback() {
+		return parallelCallback;
+	}
+	
+	public void setParallelCallback(IParallelCallback parallelCallback) {
+		this.parallelCallback = parallelCallback;
+	}
+
+	public RpcServer getServer() {
+		return server;
 	}
 }

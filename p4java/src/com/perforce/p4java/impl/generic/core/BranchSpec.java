@@ -178,10 +178,12 @@ public class BranchSpec extends BranchSpecSummary implements IBranchSpec {
 				} else if (map.get(key + i) != null) {
 					try {
 						String[] matchStrs = MapEntry.parseViewMappingString((String) map.get(key + i));
-						
+
 						this.branchView.getEntryList().add(new BranchViewMapping(i, matchStrs[0], matchStrs[1]));
-						
-					} catch (Throwable thr) {
+
+					// p4ic4idea: never, never, never catch Throwable unless you make all kinds of special checks.
+					//} catch (Throwable thr) {
+					} catch (Exception thr) {
 						Log.error("Unexpected exception in BranchSpec map-based constructor: "
 										+ thr.getLocalizedMessage());
 						Log.exception(thr);

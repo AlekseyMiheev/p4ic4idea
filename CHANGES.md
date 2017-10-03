@@ -8,6 +8,7 @@
 * First step at proper symlink handling.
 * Implemented "Shelve files to Server" action.
 * Bug fixes.
+* Testing improvements.
 
 ### Details
 

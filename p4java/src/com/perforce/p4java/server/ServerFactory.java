@@ -15,17 +15,19 @@ import java.util.Properties;
 import com.perforce.p4java.CharsetDefs;
 import com.perforce.p4java.Log;
 import com.perforce.p4java.Metadata;
-import com.perforce.p4java.impl.generic.sys.ISystemFileCommandsHelper;
+import com.perforce.p4java.common.base.OSUtils;
 import com.perforce.p4java.exception.ConfigException;
 import com.perforce.p4java.exception.ConnectionException;
 import com.perforce.p4java.exception.NoSuchObjectException;
 import com.perforce.p4java.exception.NullPointerError;
 import com.perforce.p4java.exception.ResourceException;
+import com.perforce.p4java.impl.generic.sys.ISystemFileCommandsHelper;
 import com.perforce.p4java.impl.mapbased.rpc.NtsServerImpl;
 import com.perforce.p4java.impl.mapbased.rpc.OneShotServerImpl;
 import com.perforce.p4java.impl.mapbased.rpc.sys.helper.RpcSystemFileCommandsHelper;
-import com.perforce.p4java.impl.mapbased.server.Server;
+import com.perforce.p4java.impl.mapbased.rpc.sys.helper.WindowsRpcSystemFileCommandsHelper;
 import com.perforce.p4java.impl.mapbased.server.IServerControl;
+import com.perforce.p4java.impl.mapbased.server.Server;
 import com.perforce.p4java.impl.mapbased.server.ServerAddressBuilder;
 import com.perforce.p4java.option.UsageOptions;
 import com.perforce.p4java.server.IServerAddress.Protocol;
@@ -102,7 +104,8 @@ public class ServerFactory {
 				+ "; date: " + Metadata.getP4JDateString());
 		Log.info("Using default charset: " + CharsetDefs.DEFAULT
 				+ "; JVM charset: " + CharsetDefs.LOCAL);
-		rpcFileCommandsHelper = new RpcSystemFileCommandsHelper();
+		rpcFileCommandsHelper = OSUtils.isWindows() 
+		        ? new WindowsRpcSystemFileCommandsHelper() : new RpcSystemFileCommandsHelper();
 		Log.info("Using default RPC system file command helper: "
 				+ rpcFileCommandsHelper.getClass().getCanonicalName());
 	}

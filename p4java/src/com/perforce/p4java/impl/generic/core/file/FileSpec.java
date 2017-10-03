@@ -7,8 +7,18 @@ package com.perforce.p4java.impl.generic.core.file;
 import com.perforce.p4java.Log;
 import com.perforce.p4java.client.IClient;
 import com.perforce.p4java.core.IChangelist;
-import com.perforce.p4java.core.file.*;
-import com.perforce.p4java.exception.*;
+import com.perforce.p4java.core.file.DiffType;
+import com.perforce.p4java.core.file.FileAction;
+import com.perforce.p4java.core.file.FileSpecBuilder;
+import com.perforce.p4java.core.file.FileSpecOpStatus;
+import com.perforce.p4java.core.file.IFileAnnotation;
+import com.perforce.p4java.core.file.IFileRevisionData;
+import com.perforce.p4java.core.file.IFileSpec;
+import com.perforce.p4java.exception.AccessException;
+import com.perforce.p4java.exception.ConnectionException;
+import com.perforce.p4java.exception.P4JavaError;
+import com.perforce.p4java.exception.P4JavaException;
+import com.perforce.p4java.exception.RequestException;
 import com.perforce.p4java.impl.generic.core.ServerResource;
 import com.perforce.p4java.impl.generic.core.file.FilePath.PathType;
 import com.perforce.p4java.option.server.GetFileAnnotationsOptions;
@@ -18,6 +28,9 @@ import com.perforce.p4java.option.server.MoveFileOptions;
 import com.perforce.p4java.server.IOptionsServer;
 import com.perforce.p4java.server.IServer;
 import com.perforce.p4java.server.IServerMessage;
+import com.perforce.p4java.util.compat.Jdk7Nonnull;
+import com.perforce.p4java.util.compat.Jdk7Nullable;
+import com.perforce.p4java.util.compat.Validate;
 
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -25,9 +38,15 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
+import static com.perforce.p4java.common.base.ObjectUtils.nonNull;
+import static com.perforce.p4java.common.base.P4ResultMapUtils.parseInt;
+import static com.perforce.p4java.common.base.P4ResultMapUtils.parseLong;
+import static com.perforce.p4java.common.base.P4ResultMapUtils.parseString;
+import static com.perforce.p4java.impl.mapbased.rpc.func.RpcFunctionMapKey.*;
+import static com.perforce.p4java.util.compat.StringUtils.*;
+
 /**
- * Simple generic default implementation class for the IFileSpec
- * interface.
+ * Simple generic default implementation class for the IFileSpec interface.
  */
 
 public class FileSpec extends ServerResource implements IFileSpec {
@@ -40,7 +59,7 @@ public class FileSpec extends ServerResource implements IFileSpec {
 	protected int uniqueCode = 0;
 	protected int subCode = 0;
 	protected int subSystem = 0;
-	
+
 	protected FilePath originalPath = null;
 	protected FilePath depotPath = null;
 	protected FilePath clientPath = null;
@@ -57,82 +76,91 @@ public class FileSpec extends ServerResource implements IFileSpec {
 	protected int baseRev = NO_FILE_REVISION;
 	protected String baseName = null;
 	protected String baseFile = null;
-	
+
 	protected boolean unmap = false;
-	
+
+	protected String repoName = null;
+	protected String sha = null;
+	protected String branch = null;
+	protected String blobSha = null;
+	protected String commitSha = null;
+	protected String treeSha = null;
+
 	private String fromFile = null;
 	private int endFromRev = NO_FILE_REVISION;
 	private int startFromRev = NO_FILE_REVISION;
 	private String toFile = null;
 	private int endToRev = NO_FILE_REVISION;
 	private int startToRev = NO_FILE_REVISION;
-	
+
 	private int workRev = NO_FILE_REVISION;
 	private String howResolved = null;
 	private FileAction otherAction = null;
-	
+
 	private boolean locked = false;
-	
+
 	private String diffStatus = null;
-	
+
 	private String resolveType = null;
+	private List<String> resolveTypes = null;
 	private String contentResolveType = null;
 
 	private int shelvedChange = IChangelist.UNKNOWN;
-	
+
 	protected IClient client = null;
-	
+
 	/**
-	 * Default constructor. Sets all paths, labels, dates, etc. to null; revisions
-	 * to IFileSpec.NO_FILE_REVISION; client and server references to null;
-	 * changelist ID to IChangelist.UNKNOWN; opStatus to VALID; locked to false, etc.
+	 * Default constructor. Sets all paths, labels, dates, etc. to null;
+	 * revisions to IFileSpec.NO_FILE_REVISION; client and server references to
+	 * null; changelist ID to IChangelist.UNKNOWN; opStatus to VALID; locked to
+	 * false, etc.
 	 */
 	public FileSpec() {
 		super(false, false);
 	}
-	
+
 	/**
-	 * Given a candidate path string (which may include version
-	 * and changelist annotations, at least), try to construct
-	 * a corresponding file spec.<p>
-	 * 
+	 * Given a candidate path string (which may include version and changelist
+	 * annotations, at least), try to construct a corresponding file spec.
+	 * <p>
+	 * <p>
 	 * Effectively an alias for FileSpec(pathStr, true).
-	 * 
+	 *
 	 * @param pathStr candidate path string
 	 */
-	
+
 	public FileSpec(String pathStr) {
 		this(pathStr, true);
 	}
-	
+
 	/**
-	 * Given a candidate path string (which may include version
-	 * and changelist annotations, at least), try to construct
-	 * a corresponding file spec.<p>
-	 * 
-	 * The motivation for the hasAnnotations parameter is to
-	 * allow path strings to contain "@" and "#" characters;
-	 * the downside of this that if there's any associated 
-	 * annotation info, it's not parsed at all and any such
+	 * Given a candidate path string (which may include version and changelist
+	 * annotations, at least), try to construct a corresponding file spec.
+	 * <p>
+	 * <p>
+	 * The motivation for the hasAnnotations parameter is to allow path strings
+	 * to contain "@" and "#" characters; the downside of this that if there's
+	 * any associated annotation info, it's not parsed at all and any such
 	 * information must be set up manually.
-	 * 
-	 * @param pathStr candidate path string
-	 * @param parseAnnotations if true, attempt to parse the path string
-	 * 				for revision annotations.
+	 *
+	 * @param pathStr          candidate path string
+	 * @param parseAnnotations if true, attempt to parse the path string for revision
+	 *                         annotations.
 	 */
-	public FileSpec(String pathStr, boolean parseAnnotations) {
+	public FileSpec(final String pathStr, final boolean parseAnnotations) {
 		super(false, false);
-		this.originalPath = new FilePath(PathType.ORIGINAL, pathStr);
-		if (parseAnnotations && (pathStr != null) && PathAnnotations.hasPerforceAnnotations(pathStr)) {
+		originalPath = new FilePath(PathType.ORIGINAL, pathStr);
+		if (parseAnnotations && isNotBlank(pathStr)
+				&& PathAnnotations.hasPerforceAnnotations(pathStr)) {
 			PathAnnotations annotations = new PathAnnotations(pathStr);
-			this.startRevision = annotations.getStartRevision();
-			this.endRevision = annotations.getEndRevision();
-			this.changeListId = annotations.getChangelistId();
-			this.label = annotations.getLabel();
-			this.date = annotations.getDate();
+			startRevision = annotations.getStartRevision();
+			endRevision = annotations.getEndRevision();
+			changeListId = annotations.getChangelistId();
+			label = annotations.getLabel();
+			date = annotations.getDate();
 		}
 	}
-	
+
 	/**
 	 * Construct a FileSpec from a specific FilePath.
 	 */
@@ -140,500 +168,505 @@ public class FileSpec extends ServerResource implements IFileSpec {
 		super(false, false);
 		setPath(path);
 	}
-	
+
 	/**
 	 * Construct a filespec from an opstatus and error message pair.
 	 */
-	public FileSpec(FileSpecOpStatus status, IServerMessage err) {
+    // p4ic4idea: use server message w/ errors
+	public FileSpec(final FileSpecOpStatus status, final IServerMessage errStr) {
 		super(false, false);
-		this.opStatus = status;
-		this.statusMessage = err;
-		this.genericCode = err.getGeneric();
-		this.severityCode = err.getSeverity();
-		this.rawCode = err.getRawCode();
-		this.uniqueCode = err.getUniqueCode();
-		this.subCode = err.getSubCode();
-		this.subSystem = err.getSubSystem();
+		opStatus = status;
+		statusMessage = errStr;
+		// p4ic4idea: use server message w/ errors
+		setCodes(errStr.getRawCode());
 	}
 
+    /*
+	 * Construct a FileSpec from an opstatus, error message, Perforce generic
+	 * code, and Perforce severity code.
+    // p4ic4idea: don't allow simple error message style constructors
+	public FileSpec(final FileSpecOpStatus status, final String errStr, final int genericCode,
+	                final int severityCode) {
+
+		super(false, false);
+		opStatus = status;
+		statusMessage = errStr;
+		this.genericCode = genericCode;
+		this.severityCode = severityCode;
+	}
+	*/
+
+	/*
+	 * Construct a new FileSpec given the op status, an error string, and a raw
+	 * code string returned from a Perforce server.
+    // p4ic4idea: don't allow simple error message style constructors
+	public FileSpec(final FileSpecOpStatus status, final String errStr, final String codeStr) {
+		super(false, false);
+		opStatus = status;
+		statusMessage = errStr;
+		try {
+			setCodes(Integer.valueOf(codeStr));
+		} catch (NumberFormatException thr) {
+			Log.exception(thr);
+		}
+	}
+	 */
+
+	/*
+	 * Construct a new FileSpec given the op status, an error string, and a raw
+	 * code value returned from a Perforce server.
+    // p4ic4idea: don't allow simple error message style constructors
+	public FileSpec(final FileSpecOpStatus status, final String errStr, final int rawCode) {
+
+		super(false, false);
+		opStatus = status;
+		statusMessage = errStr;
+		setCodes(rawCode);
+	}
+	 */
+
 	/**
-	 * Construct a new filespec from another filespec. In
-	 * other words, effectively clone it by deep copy of local
-	 * fields.<p>
-	 * 
+	 * Construct a new filespec from another filespec. In other words,
+	 * effectively clone it by deep copy of local fields.
+	 * <p>
+	 *
 	 * @param impl non-null existing filespec.
 	 */
-	public FileSpec(FileSpec impl) {
+	public FileSpec(final FileSpec impl) {
 		super(false, false);
-		if (impl == null) {
-			throw new NullPointerError("null impl passed to FileSpec constructor");
-		}
 
-		this.opStatus = impl.opStatus;
-		this.statusMessage = impl.statusMessage;
-		this.genericCode = impl.genericCode;
-		this.severityCode = impl.severityCode;
-		this.originalPath = impl.originalPath;
-		this.depotPath = impl.depotPath;
-		this.clientPath = impl.clientPath;
-		this.localPath = impl.localPath;
-		this.fileType = impl.fileType;
-		this.startRevision = impl.startRevision;
-		this.endRevision = impl.endRevision;
-		this.changeListId = impl.changeListId;
-		this.label = impl.label;
-		this.date = impl.date;
-		this.action = impl.action;
-		this.userName = impl.userName;
-		this.clientName = impl.clientName;
-		this.unmap = impl.unmap;
-		this.fromFile = impl.fromFile;
-		this.endFromRev = impl.endFromRev;
-		this.startFromRev = impl.startFromRev;
-		this.toFile = impl.toFile;
-		this.endToRev = impl.endToRev;
-		this.startToRev = impl.startToRev;
-		this.workRev = impl.workRev;
-		this.howResolved = impl.howResolved;
-		this.otherAction = impl.otherAction;
-		this.locked = impl.locked;
-		this.diffStatus = impl.diffStatus;
-		this.resolveType = impl.resolveType;
-		this.contentResolveType = impl.contentResolveType;
-		this.shelvedChange = impl.shelvedChange;
-		this.server = impl.server;
-		this.client = impl.client;
-		this.baseFile = impl.baseFile;
+		Validate.notNull(impl);
+
+		opStatus = impl.opStatus;
+		statusMessage = impl.statusMessage;
+		genericCode = impl.genericCode;
+		severityCode = impl.severityCode;
+		originalPath = impl.originalPath;
+		depotPath = impl.depotPath;
+		clientPath = impl.clientPath;
+		localPath = impl.localPath;
+		fileType = impl.fileType;
+		startRevision = impl.startRevision;
+		endRevision = impl.endRevision;
+		changeListId = impl.changeListId;
+		label = impl.label;
+		date = impl.date;
+		action = impl.action;
+		userName = impl.userName;
+		clientName = impl.clientName;
+		unmap = impl.unmap;
+		fromFile = impl.fromFile;
+		endFromRev = impl.endFromRev;
+		startFromRev = impl.startFromRev;
+		toFile = impl.toFile;
+		endToRev = impl.endToRev;
+		startToRev = impl.startToRev;
+		workRev = impl.workRev;
+		howResolved = impl.howResolved;
+		otherAction = impl.otherAction;
+		locked = impl.locked;
+		diffStatus = impl.diffStatus;
+		resolveType = impl.resolveType;
+		resolveTypes = impl.resolveTypes;
+		contentResolveType = impl.contentResolveType;
+		shelvedChange = impl.shelvedChange;
+		server = impl.server;
+		client = impl.client;
+		baseFile = impl.baseFile;
 	}
-	
+
 	/**
 	 * Try to construct a FileSpec from a passed-in map as returned from a
-	 * Perforce server. Tuned to return values from the underlying map-based server
-	 * interface, which explains the index (set this to zero for normal use).
+	 * Perforce server. Tuned to return values from the underlying map-based
+	 * server interface, which explains the index (set this to zero for normal
+	 * use).
 	 */
-	
-	public FileSpec(Map<String, Object> map, IServer server, int index) {
-		super(false, false);
-		if (map != null) {
-			this.setOpStatus(FileSpecOpStatus.VALID);
 
-			String indexStr = "";
+	public FileSpec(@Jdk7Nullable final Map<String, Object> map, @Jdk7Nonnull final IServer server,
+	                final int index) {
+
+		super(false, false);
+		if (nonNull(map)) {
+			setOpStatus(FileSpecOpStatus.VALID);
+
+			String indexStr = EMPTY;
 			if (index >= 0) {
 				indexStr += index;
 			}
-			this.setServer(server);
-			if (map.containsKey("dir" + indexStr)) {
-				this.setDepotPath(new FilePath(PathType.DEPOT, (String) map.get("dir" + indexStr), true));
+			setServer(server);
+			if (map.containsKey(DIR + indexStr)) {
+				setDepotPath(new FilePath(PathType.DEPOT, parseString(map, DIR + indexStr), true));
 			}
-			if (map.containsKey("depotFile" + indexStr)) {
-				this.setDepotPath(new FilePath(PathType.DEPOT, (String) map.get("depotFile" + indexStr), true));
+			if (map.containsKey(DEPOT_FILE + indexStr)) {
+				setDepotPath(new FilePath(PathType.DEPOT, parseString(map, DEPOT_FILE + indexStr),
+						true));
 			}
-			if (map.containsKey("clientFile" + indexStr)) {
-				this.setClientPath(new FilePath(PathType.CLIENT, (String) map.get("clientFile" + indexStr), true));
+			if (map.containsKey(CLIENT_FILE + indexStr)) {
+				setClientPath(new FilePath(PathType.CLIENT,
+						parseString(map, CLIENT_FILE + indexStr), true));
 			}
-			if (map.containsKey("localFile" + indexStr)) {
-				this.setLocalPath(new FilePath(PathType.LOCAL, (String) map.get("localFile" + indexStr), true));
+			if (map.containsKey(LOCAL_FILE + indexStr)) {
+				setLocalPath(new FilePath(PathType.LOCAL, parseString(map, LOCAL_FILE + indexStr),
+						true));
 			}
-			if (map.containsKey("path" + indexStr)) {
-				this.setLocalPath(new FilePath(PathType.LOCAL, (String) map.get("path" + indexStr), true));
+			if (map.containsKey(PATH + indexStr)) {
+				setLocalPath(new FilePath(PathType.LOCAL, parseString(map, PATH + indexStr), true));
 			}
-			this.setFileType((String) map.get("type" + indexStr));
-			this.setAction(FileAction.fromString((String) map.get("action" + indexStr)));
-			this.setUserName((String) map.get("user" + indexStr));
-			this.setClientName((String) map.get("client" + indexStr));
-			String cid = (String) map.get("change" + indexStr);
-			String revStr = (String) map.get("rev" + indexStr);
+			setFileType(parseString(map, TYPE + indexStr));
+			setAction(FileAction.fromString(parseString(map, ACTION + indexStr)));
+			setUserName(parseString(map, USER + indexStr));
+			setClientName(parseString(map, "client" + indexStr));
+			String cid = parseString(map, CHANGE + indexStr);
+			String revStr = parseString(map, REV + indexStr);
 			if (revStr == null) {
 				// Sometimes it's the haveRev key...
-				revStr = (String) map.get("haveRev" + indexStr);
+				revStr = parseString(map, HAVEREV + indexStr);
 			}
 
 			// Get submit date from the 'time' (seconds).
 			// Multiply by 1000 to get the milliseconds.
-			if (map.get("time") != null) {
+			if (nonNull(map.get(TIME))) {
 				try {
-					long seconds = Long.parseLong((String) map.get("time"));
-					this.setDate(new Date (seconds * 1000));
+					long seconds = parseLong(map, TIME);
+					setDate(new Date(seconds * 1000));
 				} catch (NumberFormatException nfe) {
-					Log.error("Error parsing the 'time' in the FileSpec constructor: "
-							+ nfe.getLocalizedMessage());
+					Log.error("Error parsing the '%S' in the FileSpec constructor: %s", TIME,
+							nfe.getLocalizedMessage());
 					Log.exception(nfe);
 				}
 			}
-			
-			this.setLocked((((map.get("ourLock") == null) && (map.get("otherLock") == null)) ? false : true));
-			this.setEndRevision(getRevFromString(revStr));
-			
-			if (cid == null) {
-				this.setChangelistId(IChangelist.UNKNOWN);
-			} else if (cid.equalsIgnoreCase("default") || cid.equalsIgnoreCase("default change")) {
-				this.setChangelistId(IChangelist.DEFAULT);
-			} else {
-				// Sometimes in format "change nnnnnn", sometimes just "nnnnn". Urgh...
-				int i = cid.indexOf(" ");
-				if (i < 0) {
-					this.setChangelistId(new Integer(cid));
-				} else {
-					this.setChangelistId(new Integer(cid.substring(i+1)));
-				}
-			}
-			
-			this.setEndFromRev(getRevFromString((String) map.get("endFromRev" + indexStr)));
-			this.setStartFromRev(getRevFromString((String) map.get("startFromRev" + indexStr)));
-			this.setWorkRev(getRevFromString((String) map.get("workRev" + indexStr)));
-			
-			this.setHowResolved((String) map.get("how"));
-			this.setFromFile((String) map.get("fromFile" + indexStr));
-			
-			this.setEndToRev(getRevFromString((String) map.get("endToRev" + indexStr)));
-			this.setStartToRev(getRevFromString((String) map.get("startToRev" + indexStr)));
-			this.setToFile((String) map.get("toFile" + indexStr));
-			
-			this.setBaseRev(getRevFromString((String) map.get("baseRev" + indexStr)));
-			this.setBaseName((String) map.get("baseName" + indexStr));
-			this.setBaseFile((String) map.get("baseFile" + indexStr));
 
-			this.setOtherAction(
-							FileAction.fromString((String) map.get("otherAction" + indexStr)));
-			
-			this.setDiffStatus((String) map.get("status"));
-			
-			this.setResolveType((String) map.get("resolveType"));
-			this.setContentResolveType((String) map.get("contentResolveType"));
-			
-			if (map.containsKey("shelvedChange")) {
+			setLocked(nonNull(map.get(OURLOCK)) || nonNull(map.get(OTHERLOCK)));
+			setEndRevision(getRevFromString(revStr));
+
+			if (isBlank(cid)) {
+				setChangelistId(IChangelist.UNKNOWN);
+			} else if (DEFAULT.equalsIgnoreCase(cid) || DEFAULT_CHANGE.equalsIgnoreCase(cid)) {
+				setChangelistId(IChangelist.DEFAULT);
+			} else {
+				// Sometimes in format "change nnnnnn", sometimes just "nnnnn".
+				// Urgh...
+				int i = indexOf(cid, SPACE);
+				if (i < 0) {
+					setChangelistId(Integer.valueOf(cid));
+				} else {
+					setChangelistId(Integer.valueOf(substring(cid, i + 1)));
+				}
+			}
+
+			setEndFromRev(getRevFromString(parseString(map, ENDFROMREV + indexStr)));
+			setStartFromRev(getRevFromString(parseString(map, STARTFROMREV + indexStr)));
+			setWorkRev(getRevFromString(parseString(map, WORKREV + indexStr)));
+
+			setHowResolved(parseString(map, HOW));
+			setFromFile(parseString(map, FROM_FILE + indexStr));
+
+			setEndToRev(getRevFromString(parseString(map, END_TO_REV + indexStr)));
+			setStartToRev(getRevFromString(parseString(map, START_TO_REV + indexStr)));
+			setToFile(parseString(map, TO_FILE + indexStr));
+
+			setBaseRev(getRevFromString(parseString(map, BASE_REV + indexStr)));
+			setBaseName(parseString(map, BASENAME + indexStr));
+			setBaseFile(parseString(map, BASE_FILE + indexStr));
+
+			setOtherAction(FileAction.fromString(parseString(map, OTHER_ACTION + indexStr)));
+			setDiffStatus(parseString(map, STATUS));
+
+			setResolveType(parseString(map, RESOLVE_TYPE));
+
+			int r = 0;
+			List<String> rTypes = new ArrayList<String>();
+			while(map.containsKey(RESOLVE_TYPE + r)) {
+				rTypes.add(parseString(map, RESOLVE_TYPE + r));
+				r++;
+			}
+			setResolveTypes(rTypes);
+
+			setContentResolveType(parseString(map, CONTENT_RESOLVE_TYPE));
+
+			if (map.containsKey(SHELVED_CHANGE)) {
 				try {
-					this.setShelvedChange(new Integer((String) map
-							.get("shelvedChange")));
+					setShelvedChange(parseInt(map, SHELVED_CHANGE));
 				} catch (NumberFormatException nfe) {
-					Log.error("Error parsing the 'shelvedChange' in the FileSpec constructor: "
-							+ nfe.getLocalizedMessage());
+					Log.error("Error parsing the 'shelvedChange' in the FileSpec constructor: %s",
+							nfe.getLocalizedMessage());
 					Log.exception(nfe);
 				}
 			}
-			
-			if (((String) map.get("unmap" + indexStr)) != null) {
-				this.unmap = true;
-			}
-			
-			this.setUnmap(((String) map.get("unmap" + indexStr)) != null);
+			setUnmap(nonNull(map.get(UNMAP + indexStr)));
+
+			// Graph output
+			setRepoName(parseString(map, REPO_NAME));
+			setSha(parseString(map, SHA));
+			setBranch(parseString(map, BRANCH));
+			setBlobSha(parseString(map, BLOB_SHA));
+			setCommitSha(parseString(map, COMMIT_SHA));
+			setTreeSha(parseString(map, TREE));
+			setRepoName(parseString(map, REPO));
 		}
 	}
-	
+
 	/**
-	 * Set the various error codes for this FileSpec to a value returned
-	 * from the server or the RPC layer. Use this if you're hand-constructing
-	 * a new FileSpec for an error condition and you have the raw code.
-	 *
-	 * @deprecated use the IServerMessage constructor instead
+	 * Set the various error codes for this FileSpec to a value returned from
+	 * the server or the RPC layer. Use this if you're hand-constructing a new
+	 * FileSpec for an error condition and you have the raw code.
 	 */
-	public FileSpec setCodes(int rawCode) {
+	public FileSpec setCodes(final int rawCode) {
 		this.rawCode = rawCode;
-		this.subCode = ((rawCode >> 0) & 0x3FF);
-		this.subSystem = ((rawCode >> 10) & 0x3F);
-		this.uniqueCode = (rawCode & 0xFFFF);
-		this.genericCode = ((rawCode >> 16) & 0xFF);
-		this.severityCode = ((rawCode >> 28) & 0x00F);
+		subCode = (rawCode & 0x3FF);
+		subSystem = ((rawCode >> 10) & 0x3F);
+		uniqueCode = (rawCode & 0xFFFF);
+		genericCode = ((rawCode >> 16) & 0xFF);
+		severityCode = ((rawCode >> 28) & 0x00F);
 		return this;
 	}
-	
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getPath(com.perforce.p4java.impl.generic.core.file.FilePath.PathType)
-	 */
-	public FilePath getPath(PathType pathType) {
-		if (pathType != null) {
+
+	@Override
+	public FilePath getPath(@Jdk7Nullable final PathType pathType) {
+		if (nonNull(pathType)) {
 			switch (pathType) {
 				case DEPOT:
-					return this.depotPath;
+					return depotPath;
 				case CLIENT:
-					return this.clientPath;
+					return clientPath;
 				case LOCAL:
-					return this.localPath;
+					return localPath;
 				default:
 					break;
 			}
 		}
-		
-		return this.originalPath;
+
+		return originalPath;
 	}
-	
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#setPath(com.perforce.p4java.impl.generic.core.file.FilePath)
-	 */
-	public void setPath(FilePath filePath) {
-		if (filePath != null) {
-			if (filePath.getPathType() != null) {
+
+	@Override
+	public void setPath(@Jdk7Nullable final FilePath filePath) {
+		if (nonNull(filePath)) {
+			if (nonNull(filePath.getPathType())) {
 				switch (filePath.getPathType()) {
 					case DEPOT:
-						this.depotPath = filePath;
+						depotPath = filePath;
 						return;
 					case CLIENT:
-						this.clientPath = filePath;
+						clientPath = filePath;
 						return;
 					case LOCAL:
-						this.localPath = filePath;
+						localPath = filePath;
 						return;
 					default:
 						break;
 				}
 			}
 		}
-		
-		this.originalPath = filePath;
+
+		originalPath = filePath;
 	}
-	
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getAction()
-	 */
+
+	@Override
 	public FileAction getAction() {
-		return this.action;
+		return action;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getChangelistId()
-	 */
+	@Override
 	public int getChangelistId() {
-		return this.changeListId;
+		return changeListId;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getClientName()
-	 */
+	@Override
 	public String getClientName() {
-		return this.clientName;
+		return clientName;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getClientPath()
-	 */
+	@Override
 	public FilePath getClientPath() {
-		return this.getPath(PathType.CLIENT);
+		return getPath(PathType.CLIENT);
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getContents(boolean)
-	 */
+	@Override
 	public InputStream getContents(boolean noHeaderLine)
-			throws ConnectionException, RequestException,
-			AccessException {
+			throws ConnectionException, RequestException, AccessException {
 		checkServer();
 		List<IFileSpec> fList = new ArrayList<IFileSpec>();
 		fList.add(this);
-		
-		return this.server.getFileContents(fList, false, noHeaderLine);
+
+		return server.getFileContents(fList, false, noHeaderLine);
 	}
-	
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getContents(com.perforce.p4java.option.server.GetFileContentsOptions)
-	 */
+
+	@Override
 	public InputStream getContents(GetFileContentsOptions opts) throws P4JavaException {
 		checkServer();
 		List<IFileSpec> fList = new ArrayList<IFileSpec>();
 		fList.add(this);
-		
-		return ((IOptionsServer) this.server).getFileContents(fList, opts);
+
+		return ((IOptionsServer) server).getFileContents(fList, opts);
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getDepotPath()
-	 */
+	@Override
 	public FilePath getDepotPath() {
-		return this.getPath(PathType.DEPOT);
+		return getPath(PathType.DEPOT);
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getEndRevision()
-	 */
+	@Override
 	public int getEndRevision() {
-		return this.endRevision;
+		return endRevision;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getFileType()
-	 */
+	@Override
 	public String getFileType() {
-		return this.fileType;
+		return fileType;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getLabel()
-	 */
+	@Override
 	public String getLabel() {
-		return this.label;
+		return label;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getLocalPath()
-	 */
+	@Override
 	public FilePath getLocalPath() {
-		return this.getPath(PathType.LOCAL);
+		return getPath(PathType.LOCAL);
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getOpStatus()
-	 */
+	@Override
 	public FileSpecOpStatus getOpStatus() {
-		return this.opStatus;
+		return opStatus;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getPreferredPath()
-	 */
+	@Override
 	public FilePath getPreferredPath() {
-		// groboclown: extra null checking
-		if (this.originalPath != null && this.originalPath.getPathString() != null) {
-			return this.originalPath;
-		} else if (this.depotPath != null && this.depotPath.getPathString() != null) {
-			return this.depotPath;
-		} else if (this.clientPath != null && this.clientPath.getPathString() != null) {
-			return this.clientPath;
-		} else if (this.localPath != null && this.localPath.getPathString() != null) {
-			return this.localPath;
+		if (nonNull(originalPath)) {
+			return originalPath;
+		} else if (nonNull(depotPath)) {
+			return depotPath;
+		} else if (nonNull(clientPath)) {
+			return clientPath;
+		} else if (nonNull(localPath)) {
+			return localPath;
 		}
-		
+
 		return null;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getRevisionHistory(int, boolean, boolean, boolean, boolean)
-	 */
-	public Map<IFileSpec, List<IFileRevisionData>> getRevisionHistory(int maxRevs,
-						boolean contentHistory, boolean includeInherited,
-						boolean longOutput, boolean truncatedLongOutput)
+	@Override
+	public Map<IFileSpec, List<IFileRevisionData>> getRevisionHistory(final int maxRevs,
+	                                                                  final boolean contentHistory, final boolean includeInherited, final boolean longOutput,
+	                                                                  final boolean truncatedLongOutput)
 			throws ConnectionException, RequestException, AccessException {
-		
+
 		checkServer();
-		return this.server.getRevisionHistory(
-				FileSpecBuilder.makeFileSpecList(new String[] { this.getAnnotatedPreferredPathString() }),
-						maxRevs, contentHistory, includeInherited, longOutput, truncatedLongOutput);
+		return server.getRevisionHistory(
+				FileSpecBuilder.makeFileSpecList(getAnnotatedPreferredPathString()), maxRevs,
+				contentHistory, includeInherited, longOutput, truncatedLongOutput);
 	}
-	
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getRevisionHistory(com.perforce.p4java.option.server.GetRevisionHistoryOptions)
-	 */
-	public Map<IFileSpec, List<IFileRevisionData>> getRevisionHistory(GetRevisionHistoryOptions opts)
-						throws P4JavaException {
-		checkServer();		
-		return ((IOptionsServer) this.server).getRevisionHistory(
-				FileSpecBuilder.makeFileSpecList(new String[] { this.getAnnotatedPreferredPathString() }), opts);
+
+	@Override
+	public Map<IFileSpec, List<IFileRevisionData>> getRevisionHistory(
+			GetRevisionHistoryOptions opts) throws P4JavaException {
+		checkServer();
+		return ((IOptionsServer) server).getRevisionHistory(
+				FileSpecBuilder.makeFileSpecList(getAnnotatedPreferredPathString()), opts);
 	}
-	
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getAnnotations(com.perforce.p4java.core.file.DiffType, boolean, boolean, boolean)
-	 */
-	public List<IFileAnnotation> getAnnotations(DiffType wsOptions, boolean allResults,
-						boolean useChangeNumbers, boolean followBranches)
+
+	@Override
+	public List<IFileAnnotation> getAnnotations(final DiffType wsOptions, final boolean allResults,
+	                                            final boolean useChangeNumbers, final boolean followBranches)
 			throws ConnectionException, RequestException, AccessException {
+
 		checkServer();
 		List<IFileSpec> specList = new ArrayList<IFileSpec>();
 		specList.add(this);
-		return this.server.getFileAnnotations(specList, wsOptions, allResults, useChangeNumbers, followBranches);
+		return server.getFileAnnotations(specList, wsOptions, allResults, useChangeNumbers,
+				followBranches);
 	}
-	
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getAnnotations(com.perforce.p4java.option.server.GetFileAnnotationsOptions)
-	 */
-	public List<IFileAnnotation> getAnnotations(GetFileAnnotationsOptions opts) throws P4JavaException {
+
+	@Override
+	public List<IFileAnnotation> getAnnotations(GetFileAnnotationsOptions opts)
+			throws P4JavaException {
 		checkServer();
 		List<IFileSpec> specList = new ArrayList<IFileSpec>();
 		specList.add(this);
-		return ((IOptionsServer) this.server).getFileAnnotations(specList, opts);
+		return ((IOptionsServer) server).getFileAnnotations(specList, opts);
 	}
-	
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#move(int, boolean, boolean, java.lang.String, com.perforce.p4java.core.file.IFileSpec)
-	 */
-	public List<IFileSpec> move(int changelistId, boolean listOnly, boolean noClientMove, String fileType, IFileSpec toFile)
-					throws ConnectionException, RequestException, AccessException {
+
+	@Override
+	public List<IFileSpec> move(final int changelistId, final boolean listOnly,
+	                            final boolean noClientMove, final String fileType, final IFileSpec toFile)
+			throws ConnectionException, RequestException, AccessException {
+
 		checkServer();
-		return this.server.moveFile(changelistId, listOnly, noClientMove, fileType, this, toFile);
+		return server.moveFile(changelistId, listOnly, noClientMove, fileType, this, toFile);
 	}
-	
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#move(com.perforce.p4java.core.file.IFileSpec, com.perforce.p4java.option.server.MoveFileOptions)
-	 */
-	public List<IFileSpec> move(IFileSpec toFile, MoveFileOptions opts) throws P4JavaException {
+
+	@Override
+	public List<IFileSpec> move(final IFileSpec toFile, final MoveFileOptions opts)
+			throws P4JavaException {
 		checkServer();
-		return ((IOptionsServer) this.server).moveFile(this, toFile, opts);
+		return ((IOptionsServer) server).moveFile(this, toFile, opts);
 	}
-	
+
 	private void checkServer() throws P4JavaError {
-		if (this.server == null) {
-			throw new P4JavaError("File specification is not associated with any server");
-		}
-		
-		if (!(this.server instanceof IOptionsServer)) {
+		Validate.notNull(server);
+		if (!(server instanceof IOptionsServer)) {
 			// This should be impossible, but you never know... -- HR.
 			throw new P4JavaError("File specification is not associated with an options server");
 		}
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getStartRevision()
-	 */
+	@Override
 	public int getStartRevision() {
-		return this.startRevision;
+		return startRevision;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getStatusMessage()
-	 */
+	@Override
 	public IServerMessage getStatusMessage() {
-		return this.statusMessage;
+		return statusMessage;
 	}
-	
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getSeverityCode()
-	 */
+
+	@Override
 	public int getSeverityCode() {
-		return this.severityCode;
+		return severityCode;
 	}
-	
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getGenericCode()
-	 */
+
+	@Override
 	public int getGenericCode() {
-		return this.genericCode;
+		return genericCode;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getUserName()
-	 */
+	@Override
 	public String getUserName() {
-		return this.userName;
+		return userName;
 	}
-	
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#isLocked()
-	 */
+
+	@Override
 	public boolean isLocked() {
-		return this.locked;
+		return locked;
 	}
-	
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getDiffStatus()
-	 */
+
+	@Override
 	public String getDiffStatus() {
-		return this.diffStatus;
+		return diffStatus;
 	}
 
+	@Override
 	public String getResolveType() {
-		return this.resolveType;
+		return resolveType;
 	}
 
+	@Override
 	public String getContentResolveType() {
-		return this.contentResolveType;
+		return contentResolveType;
 	}
 
+	@Override
 	public int getShelvedChange() {
-		return this.shelvedChange;
+		return shelvedChange;
 	}
 
 	public void setOpStatus(FileSpecOpStatus opStatus) {
 		this.opStatus = opStatus;
 	}
 
-	public void setStatusMessage(IServerMessage statusMessage) {
+    // p4ic4idea: status message is server message
+    public void setStatusMessage(IServerMessage statusMessage) {
 		this.statusMessage = statusMessage;
 	}
 
@@ -653,34 +686,42 @@ public class FileSpec extends ServerResource implements IFileSpec {
 		this.localPath = localPath;
 	}
 
+	@Override
 	public void setFileType(String fileType) {
 		this.fileType = fileType;
 	}
 
+	@Override
 	public void setStartRevision(int startRevision) {
 		this.startRevision = startRevision;
 	}
 
+	@Override
 	public void setEndRevision(int endRevision) {
 		this.endRevision = endRevision;
 	}
 
+	@Override
 	public void setChangelistId(int changeListId) {
 		this.changeListId = changeListId;
 	}
 
+	@Override
 	public void setLabel(String label) {
 		this.label = label;
 	}
 
+	@Override
 	public void setAction(FileAction action) {
 		this.action = action;
 	}
 
+	@Override
 	public void setUserName(String userName) {
 		this.userName = userName;
 	}
 
+	@Override
 	public void setClientName(String clientName) {
 		this.clientName = clientName;
 	}
@@ -689,375 +730,400 @@ public class FileSpec extends ServerResource implements IFileSpec {
 		this.client = client;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getEndFromRev()
-	 */
+	@Override
 	public int getEndFromRev() {
-		return this.endFromRev;
+		return endFromRev;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getEndToRev()
-	 */
+	@Override
 	public int getEndToRev() {
-		return this.endToRev;
+		return endToRev;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getFromFile()
-	 */
+	@Override
 	public String getFromFile() {
-		return this.fromFile;
+		return fromFile;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getHowResolved()
-	 */
+	@Override
 	public String getHowResolved() {
-		return this.howResolved;
+		return howResolved;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getOtherAction()
-	 */
+	@Override
 	public FileAction getOtherAction() {
-		return this.otherAction;
+		return otherAction;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getStartFromRev()
-	 */
+	@Override
 	public int getStartFromRev() {
-		return this.startFromRev;
+		return startFromRev;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getStartToRev()
-	 */
+	@Override
 	public int getStartToRev() {
-		return this.startToRev;
+		return startToRev;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getToFile()
-	 */
+	@Override
 	public String getToFile() {
-		return this.toFile;
+		return toFile;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getWorkRev()
-	 */
+	@Override
 	public int getWorkRev() {
-		return this.workRev;
-	}
-	
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#isUnmap()
-	 */
-	public boolean isUnmap() {
-		return this.unmap;
+		return workRev;
 	}
 
+	@Override
+	public boolean isUnmap() {
+		return unmap;
+	}
+
+	@Override
 	public void setDate(Date date) {
 		this.date = date;
 	}
 
+	@Override
 	public void setFromFile(String fromFile) {
 		this.fromFile = fromFile;
 	}
 
+	@Override
 	public void setEndFromRev(int endFromRev) {
 		this.endFromRev = endFromRev;
 	}
 
+	@Override
 	public void setStartFromRev(int startFromRev) {
 		this.startFromRev = startFromRev;
 	}
 
+	@Override
 	public void setToFile(String toFile) {
 		this.toFile = toFile;
 	}
 
+	@Override
 	public void setEndToRev(int endToRev) {
 		this.endToRev = endToRev;
 	}
 
+	@Override
 	public void setStartToRev(int startToRev) {
 		this.startToRev = startToRev;
 	}
 
+	@Override
 	public void setWorkRev(int workRev) {
 		this.workRev = workRev;
 	}
 
+	@Override
 	public void setHowResolved(String howResolved) {
 		this.howResolved = howResolved;
 	}
 
+	@Override
 	public void setOtherAction(FileAction otherAction) {
 		this.otherAction = otherAction;
 	}
-	
+
+	@Override
 	public void setLocked(boolean locked) {
 		this.locked = locked;
 	}
-	
+
+	@Override
 	public void setDiffStatus(String diffStatus) {
 		this.diffStatus = diffStatus;
 	}
-	
+
+	@Override
 	public void setResolveType(String resolveType) {
 		this.resolveType = resolveType;
 	}
 
+	@Override
 	public void setContentResolveType(String contentResolveType) {
 		this.contentResolveType = contentResolveType;
 	}
 
+	@Override
 	public void setShelvedChange(int shelvedChange) {
 		this.shelvedChange = shelvedChange;
 	}
 
+	@Override
 	public void setUnmap(boolean unmap) {
 		this.unmap = unmap;
+	}
+
+	@Override
+	public void setRepoName(String repoName) {
+		this.repoName = repoName;
+	}
+
+	@Override
+	public void setSha(String sha) {
+		this.sha = sha;
+	}
+
+	@Override
+	public void setBranch(String branch) {
+		this.branch = branch;
+	}
+
+	@Override
+	public String getBlobSha() {
+		return blobSha;
+	}
+
+	@Override
+	public void setBlobSha(String sha) {
+		blobSha = sha;
+	}
+
+	@Override
+	public String getCommitSha() {
+		return commitSha;
+	}
+
+	@Override
+	public void setCommitSha(String sha) {
+		commitSha = sha;
+	}
+
+	@Override
+	public String getTreeSha() {
+		return treeSha;
+	}
+
+	@Override
+	public void setTreeSha(String sha) {
+		treeSha = sha;
 	}
 
 	public static int getRevFromString(String str) {
 		int rev = NO_FILE_REVISION;
 
-		if (str != null) {
+		if (isNotBlank(str)) {
 			// can be in #rev or rev form, unfortunately...
-
-			if (str.contains("head")) {
+			if (contains(str, "head")) {
 				return HEAD_REVISION;
 			}
-			
-			if (str.contains("none")) {
+
+			if (contains(str, "none")) {
 				return NO_FILE_REVISION;
 			}
-			
+
 			try {
-				if (str.startsWith("#") && (str.length() > 1)) {
-					rev = new Integer(str.substring(1));
-				} else if (str.length() > 0){
-					rev = new Integer(str);
+				int length = length(str);
+				if (startsWith(str, "#") && length > 1) {
+					rev = Integer.valueOf(substring(str, 1));
+				} else if (length > 0) {
+					rev = Integer.valueOf(str);
 				}
 			} catch (Exception exc) {
-				Log.error("Conversion error in FileSpec.getRevFromString: "
-						+ exc.getLocalizedMessage());
+				Log.error("Conversion error in FileSpec.getRevFromString: %s",
+						exc.getLocalizedMessage());
 				Log.exception(exc);
 			}
-
 		}
 		return rev;
 	}
-	
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getClientPathString()
-	 */
+
+	@Override
 	public String getClientPathString() {
 		return getPathString(PathType.CLIENT);
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getDepotPathString()
-	 */
+	@Override
 	public String getDepotPathString() {
 		return getPathString(PathType.DEPOT);
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getLocalPathString()
-	 */
+	@Override
 	public String getLocalPathString() {
 		return getPathString(PathType.LOCAL);
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getOriginalPath()
-	 */
+	@Override
 	public FilePath getOriginalPath() {
-		if (getPath(PathType.ORIGINAL) != null) { // See job061945
+		if (nonNull(getPath(PathType.ORIGINAL))) { // See job061945
 			return getPath(PathType.ORIGINAL);
 		} else { // API backward compatibility - See job070533
 			return getPath(PathType.CLIENT);
 		}
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getOriginalPathString()
-	 */
+	@Override
 	public String getOriginalPathString() {
-		if (getPathString(PathType.ORIGINAL) != null) { // See job061945
+		if (nonNull(getPathString(PathType.ORIGINAL))) { // See job061945
 			return getPathString(PathType.ORIGINAL);
 		} else { // API backward compatibility - See job070533
 			return getPathString(PathType.CLIENT);
 		}
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getPathString(com.perforce.p4java.impl.generic.core.file.FilePath.PathType)
-	 */
+	@Override
 	public String getPathString(PathType pathType) {
 		FilePath fPath = getPath(pathType);
-		
-		if (fPath != null) {
+
+		if (nonNull(fPath)) {
 			return fPath.toString();
 		}
 		return null;
 	}
-	
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getAnnotatedPathString(com.perforce.p4java.impl.generic.core.file.FilePath.PathType)
-	 */
+
+	@Override
 	public String getAnnotatedPathString(PathType pathType) {
 		FilePath path = getPath(pathType);
-		if (path != null) {
+		if (nonNull(path)) {
 			return path.annotate(this);
 		}
-		
+
 		return null;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getPreferredPathString()
-	 */
+	@Override
 	public String getPreferredPathString() {
 		FilePath prefPath = getPreferredPath();
-		
-		if ((prefPath != null) && (prefPath.getPathString() != null)) {
+
+		if (nonNull(prefPath) && nonNull(prefPath.getPathString())) {
 			return prefPath.toString();
 		}
-		
+
 		return null;
-	}
-	
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getAnnotatedPreferredPathString()
-	 */
-	public String getAnnotatedPreferredPathString() {
-		FilePath prefPath = getPreferredPath();
-		
-		if ((prefPath != null) && (prefPath.getPathString() != null)) {
-			return prefPath.annotate(this);
-		}
-		
-		return null;
-	}
-	
-	/**
-	 * Alias for getAnnotatedPreferredPathString().
-	 * 
-	 * @see java.lang.Object#toString()
-	 */
-	public String toString() {
-		return getAnnotatedPreferredPathString();
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#setPathFromString(com.perforce.p4java.impl.generic.core.file.FilePath.PathType, java.lang.String)
-	 */
+	@Override
+	public String getAnnotatedPreferredPathString() {
+		FilePath prefPath = getPreferredPath();
+
+		if (nonNull(prefPath) && nonNull(prefPath.getPathString())) {
+			return prefPath.annotate(this);
+		}
+
+		return null;
+	}
+
+	@Override
+	public String toString() {
+		String usefulDescription = getAnnotatedPreferredPathString();
+		if (usefulDescription == null && statusMessage != null) {
+			usefulDescription = opStatus + ": " + statusMessage;
+		}
+		if (usefulDescription == null && repoName != null) {
+			usefulDescription = repoName + ": " + sha;
+		}
+		return usefulDescription;
+	}
+
+	@Override
 	public void setPathFromString(PathType pathType, String pathStr) {
 		FilePath path = new FilePath(pathType, pathStr);
 		setPath(path);
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getDate()
-	 */
+	@Override
 	public Date getDate() {
 		return this.date;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#setClientPath(java.lang.String)
-	 */
+	@Override
 	public void setClientPath(String pathStr) {
 		setPath(new FilePath(PathType.CLIENT, pathStr));
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#setDepotPath(java.lang.String)
-	 */
+	@Override
 	public void setDepotPath(String pathStr) {
 		setPath(new FilePath(PathType.DEPOT, pathStr));
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#setLocalPath(java.lang.String)
-	 */
+	@Override
 	public void setLocalPath(String pathStr) {
-		// groboclown: fix how nulls work
-		if (pathStr == null) {
-			localPath = null;
-		} else {
-			setPath(new FilePath(PathType.LOCAL, pathStr));
-		}
+		setPath(new FilePath(PathType.LOCAL, pathStr));
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#setOriginalPath(java.lang.String)
-	 */
+	@Override
 	public void setOriginalPath(String pathStr) {
 		setPath(new FilePath(PathType.ORIGINAL, pathStr));
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getBaseRev()
-	 */
+	@Override
 	public int getBaseRev() {
 		return baseRev;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#setBaseRev(int)
-	 */
+	@Override
 	public void setBaseRev(int baseRev) {
 		this.baseRev = baseRev;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getBaseName()
-	 */
+	@Override
 	public String getBaseName() {
 		return baseName;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#setBaseName(java.lang.String)
-	 */
+	@Override
 	public void setBaseName(String baseName) {
 		this.baseName = baseName;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#getBaseFile()
-	 */
+	@Override
 	public String getBaseFile() {
 		return baseFile;
 	}
 
-	/**
-	 * @see com.perforce.p4java.core.file.IFileSpec#setBaseFile(java.lang.String)
-	 */
+	@Override
 	public void setBaseFile(String baseFile) {
 		this.baseFile = baseFile;
 	}
 
+	@Override
 	public int getRawCode() {
 		return rawCode;
 	}
 
+	@Override
 	public int getUniqueCode() {
 		return uniqueCode;
 	}
 
+	@Override
 	public int getSubCode() {
 		return subCode;
 	}
 
+	@Override
 	public int getSubSystem() {
 		return subSystem;
+	}
+
+	@Override
+	public String getRepoName() {
+		return repoName;
+	}
+
+	@Override
+	public String getSha() {
+		return sha;
+	}
+
+	@Override
+	public String getBranch() {
+		return branch;
+	}
+
+	@Override
+	public List<String> getResolveTypes() {
+		return resolveTypes;
+	}
+
+	@Override
+	public void setResolveTypes(List<String> types) {
+		this.resolveTypes = types;
 	}
 }

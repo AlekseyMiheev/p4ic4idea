@@ -197,7 +197,6 @@ public class ViewMap<E extends IMapEntry> implements Iterable<E> {
 	/**
 	 * @see java.lang.Iterable#iterator()
 	 */
-	@Override
 	public Iterator<E> iterator() {
 		return this.entryList.iterator();
 	}

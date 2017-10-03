@@ -54,9 +54,7 @@ public enum DiffType {
 			case IGNORE_WS:
 			case IGNORE_LINE_ENDINGS:
 				return true;
-			// p4ic4idea: explicitly handle default case
-			default:
-				return false;
 		}
+		return false;
 	}
 }

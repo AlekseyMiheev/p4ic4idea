@@ -5,71 +5,118 @@ package com.perforce.p4java.impl.mapbased.rpc;
 
 import com.perforce.p4java.Log;
 import com.perforce.p4java.PropertyDefs;
+import com.perforce.p4java.common.base.ObjectUtils;
 import com.perforce.p4java.env.PerforceEnvironment;
-import com.perforce.p4java.exception.*;
+import com.perforce.p4java.exception.AccessException;
+import com.perforce.p4java.exception.AuthenticationFailedException;
+import com.perforce.p4java.exception.ConfigException;
+import com.perforce.p4java.exception.ConnectionException;
+import com.perforce.p4java.exception.MessageSeverityCode;
+import com.perforce.p4java.exception.P4JavaException;
+import com.perforce.p4java.exception.RequestException;
+import com.perforce.p4java.exception.TrustException;
 import com.perforce.p4java.impl.mapbased.rpc.connection.RpcConnection;
 import com.perforce.p4java.impl.mapbased.rpc.func.client.ClientTrust;
 import com.perforce.p4java.impl.mapbased.rpc.func.proto.PerformanceMonitor;
 import com.perforce.p4java.impl.mapbased.rpc.func.proto.ProtocolCommand;
 import com.perforce.p4java.impl.mapbased.rpc.helper.RpcUserAuthCounter;
-import com.perforce.p4java.impl.mapbased.rpc.msg.RpcMessage;
-import com.perforce.p4java.impl.mapbased.rpc.msg.ServerMessage;
 import com.perforce.p4java.impl.mapbased.rpc.packet.helper.RpcPacketFieldRule;
 import com.perforce.p4java.impl.mapbased.rpc.stream.RpcStreamConnection;
 import com.perforce.p4java.impl.mapbased.server.Server;
+import com.perforce.p4java.impl.mapbased.server.cmd.ResultMapParser;
+import com.perforce.p4java.messages.PerforceMessages;
 import com.perforce.p4java.option.UsageOptions;
 import com.perforce.p4java.option.server.TrustOptions;
-import com.perforce.p4java.server.*;
-import com.perforce.p4java.util.PropertiesHelper;
+import com.perforce.p4java.server.AbstractAuthHelper;
+import com.perforce.p4java.server.AuthTicketsHelper;
+import com.perforce.p4java.server.CmdSpec;
+import com.perforce.p4java.server.Fingerprint;
+import com.perforce.p4java.server.FingerprintsHelper;
+import com.perforce.p4java.server.IServerAddress;
+import com.perforce.p4java.server.IServerImplMetadata;
+import com.perforce.p4java.server.IServerInfo;
+import com.perforce.p4java.server.IServerMessage;
+import com.perforce.p4java.server.ServerStatus;
+import com.perforce.p4java.util.compat.Validate;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.UnknownHostException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Properties;
+
+import static com.perforce.p4java.PropertyDefs.*;
+import static com.perforce.p4java.common.base.ObjectUtils.nonNull;
+import static com.perforce.p4java.common.base.P4JavaExceptions.throwConnectionExceptionIfConditionFails;
+import static com.perforce.p4java.common.base.StringHelper.firstConditionIsTrue;
+import static com.perforce.p4java.common.base.StringHelper.firstNonBlank;
+import static com.perforce.p4java.exception.MessageGenericCode.EV_NONE;
+import static com.perforce.p4java.exception.MessageSeverityCode.E_EMPTY;
+import static com.perforce.p4java.exception.TrustException.Type.NEW_CONNECTION;
+import static com.perforce.p4java.exception.TrustException.Type.NEW_KEY;
+import static com.perforce.p4java.impl.mapbased.rpc.RpcPropertyDefs.RPC_APPLICATION_NAME_NICK;
+import static com.perforce.p4java.impl.mapbased.rpc.RpcPropertyDefs.RPC_RELAX_CMD_NAME_CHECKS_NICK;
+import static com.perforce.p4java.impl.mapbased.rpc.RpcPropertyDefs.getPropertyAsBoolean;
+import static com.perforce.p4java.impl.mapbased.rpc.func.client.ClientTrust.*;
+import static com.perforce.p4java.server.CmdSpec.LOGIN;
+import static com.perforce.p4java.server.CmdSpec.getValidP4JCmdSpec;
+import static com.perforce.p4java.util.PropertiesHelper.getPropertyAsInt;
+import static com.perforce.p4java.util.PropertiesHelper.getPropertyAsLong;
+import static com.perforce.p4java.util.PropertiesHelper.getPropertyByKeys;
+import static com.perforce.p4java.util.compat.StringUtils.EMPTY;
+import static com.perforce.p4java.util.compat.StringUtils.contains;
+import static com.perforce.p4java.util.compat.StringUtils.indexOf;
+import static com.perforce.p4java.util.compat.StringUtils.isBlank;
+import static com.perforce.p4java.util.compat.StringUtils.isNotBlank;
 
 /**
  * RPC-based Perforce server implementation superclass.
  */
-
 public abstract class RpcServer extends Server {
-
     /**
      * The implementation type of this implementation.
      */
-    public static final IServerImplMetadata.ImplType IMPL_TYPE
-                                                            = IServerImplMetadata.ImplType.NATIVE_RPC;
+    public static final IServerImplMetadata.ImplType IMPL_TYPE = IServerImplMetadata.ImplType.NATIVE_RPC;
 
     /**
-     * The default string sent to the Perforce server in the protocol
-     * command defining the client's program name. This can be set with the
-     * IServer interface.
+     * The default string sent to the Perforce server in the protocol command
+     * defining the client's program name. This can be set with the IServer
+     * interface.
      */
     public static final String DEFAULT_PROG_NAME = "p4jrpc";
 
     /**
-     * The default string sent to the Perforce server in the protocol
-     * command defining the client's program version. This can be set with the
-     * IServer interface.
+     * The default string sent to the Perforce server in the protocol command
+     * defining the client's program version. This can be set with the IServer
+     * interface.
      */
     public static final String DEFAULT_PROG_VERSION = "Beta 1.0";
 
     /**
      * Default Perforce client API level; 79 represents 2015.2 capabilities.
-     * Don't change this unless you know what you're doing. Note that this
-     * is a default for most commands; some commands dynamically bump up
-     * the level for the command's duration.
+     * Don't change this unless you know what you're doing. Note that this is a
+     * default for most commands; some commands dynamically bump up the level
+     * for the command's duration.
      */
-    public static final int DEFAULT_CLIENT_API_LEVEL = 79;    // 2015.2
-        														// p4/msgs/p4tagl.cc
-                                                              // p4/client/client.cc
-                                                              // p4/server/rhservice.h
+    public static final int DEFAULT_CLIENT_API_LEVEL = 79; // 2015.2
+    // p4/msgs/p4tagl.cc
+    // p4/client/client.cc
+    // p4/server/rhservice.h
 
     /**
      * Default Perforce server API level; 99999 apparently means "whatever...".
      * Don't change this unless you know what you're doing.
      */
-    public static final int DEFAULT_SERVER_API_LEVEL = 99999;	// As picked off the wire for C++ API
-                                                                // p4/client/clientmain.cc
-                                                                // p4/server/rhservice.cc
+    public static final int DEFAULT_SERVER_API_LEVEL = 99999; // As picked off
+    // the wire for
+    // C++ API
+    // p4/client/clientmain.cc
+    // p4/server/rhservice.cc
 
     /**
      * Signifies whether or not we use tagged output. Don't change this unless
@@ -98,14 +145,14 @@ public abstract class RpcServer extends Server {
     public static final String RPC_ENV_WINDOWS_PREFIX = "windows";
 
     /**
-     * What we use in the RPC environment packet to signal to the
-     * Perforce server that we're a Windows box.
+     * What we use in the RPC environment packet to signal to the Perforce
+     * server that we're a Windows box.
      */
     public static final String RPC_ENV_WINDOWS_SPEC = "NT"; // sic
 
     /**
-     * What we use in the RPC environment packet to signal to the
-     * Perforce server that we're a NON-Windows box.
+     * What we use in the RPC environment packet to signal to the Perforce
+     * server that we're a NON-Windows box.
      */
 
     public static final String RPC_ENV_UNIX_SPEC = "UNIX";
@@ -120,13 +167,17 @@ public abstract class RpcServer extends Server {
      * What we use in the RPC environment packet to signal to the Perforce
      * server that we don't have a hostname set yet or don't know what it is.
      */
-    public static final String RPC_ENV_NOHOST_SPEC = "nohost"; // as cribbed from the C++ API...
+    public static final String RPC_ENV_NOHOST_SPEC = "nohost"; // as cribbed
+    // from the C++
+    // API...
 
     /**
      * What we use in the RPC environment packet to signal to the Perforce
      * server that we don't have a client set yet or don't know what it is.
      */
-    public static final String RPC_ENV_NOUSER_SPEC = "nouser"; // as cribbed from the C++ API...
+    public static final String RPC_ENV_NOUSER_SPEC = "nouser"; // as cribbed
+    // from the C++
+    // API...
 
     /**
      * What we use as a P4JTracer trace prefix for methods here.
@@ -134,8 +185,8 @@ public abstract class RpcServer extends Server {
     public static final String TRACE_PREFIX = "RpcServer";
 
     /**
-     * Used to key temporary output streams in the command environment's
-     * state map for things like getFileContents(), etc., using the execStreamCmd
+     * Used to key temporary output streams in the command environment's state
+     * map for things like getFileContents(), etc., using the execStreamCmd
      * method(s).
      */
     public static final String RPC_TMP_OUTFILE_STREAM_KEY = "";
@@ -145,24 +196,29 @@ public abstract class RpcServer extends Server {
      */
     public static final String RPC_TMP_CONVERTER_KEY = "RPC_TMP_CONVERTER_KEY";
 
-    // p4ic4idea: make private
-    private String localHostName = null;	// intended to be just the unqualified name...
-    protected int clientApiLevel = DEFAULT_CLIENT_API_LEVEL;
-    protected int serverApiLevel = DEFAULT_SERVER_API_LEVEL;
-    protected String applicationName = null;	// Application name
+/*
+
+    private static final String AUTH_FAIL_STRING_1 = "Single sign-on on client failed"; // SSO
+    // failure
+    private static final String AUTH_FAIL_STRING_2 = "Password invalid";
+
+    private static final String[] ACCESS_ERROR_MSGS = {CORE_AUTH_FAIL_STRING_1,
+            CORE_AUTH_FAIL_STRING_2, CORE_AUTH_FAIL_STRING_3, CORE_AUTH_FAIL_STRING_4,
+            AUTH_FAIL_STRING_1, AUTH_FAIL_STRING_2};
+*/
 
     private static final String AUTH_FAIL_STRING_1 = "Single sign-on on client failed"; // SSO failure
     private static final String AUTH_FAIL_STRING_2 = "Password invalid";
 
     // p4ic4idea: map the error type to the string
     private static final String[] accessErrMsgs = {
-                    CORE_AUTH_FAIL_STRING_1,
-                    CORE_AUTH_FAIL_STRING_2,
-                    CORE_AUTH_FAIL_STRING_3,
-                    CORE_AUTH_FAIL_STRING_4,
-                    CORE_AUTH_FAIL_STRING_5,
-                    AUTH_FAIL_STRING_1,
-                    AUTH_FAIL_STRING_2
+            CORE_AUTH_FAIL_STRING_1,
+            CORE_AUTH_FAIL_STRING_2,
+            CORE_AUTH_FAIL_STRING_3,
+            CORE_AUTH_FAIL_STRING_4,
+            CORE_AUTH_FAIL_STRING_5,
+            AUTH_FAIL_STRING_1,
+            AUTH_FAIL_STRING_2
     };
     private static final AuthenticationFailedException.ErrorType[] accessErrTypes = {
             // each index maps to the error message
@@ -177,11 +233,16 @@ public abstract class RpcServer extends Server {
 
     private static final String PASSWORD_NOT_SET_STRING = "no password set for this user";
 
+    // p4ic4idea: make private
+    private String localHostName = null; // intended to be just the
+    // unqualified name...
+    protected int clientApiLevel = DEFAULT_CLIENT_API_LEVEL;
+    protected int serverApiLevel = DEFAULT_SERVER_API_LEVEL;
+    protected String applicationName = null; // Application name
+
     protected long connectionStart = 0;
 
     protected Map<String, Object> serverProtocolMap = new HashMap<String, Object>();
-
-    private PerformanceMonitor perfMonitor = new PerformanceMonitor();
 
     protected ServerStats serverStats = null;
 
@@ -209,275 +270,118 @@ public abstract class RpcServer extends Server {
     protected Map<String, Object> cmdMapArgs = null;
 
     /**
-     * If true, relax the command name validation checks done
-     * in the RPC layer. This is dangerous, and any use of this
-     * should only be done if you know what you're doing and you're
-     * able to deal with the consequences (which won't be spelled
-     * out here).
+     * If true, relax the command name validation checks done in the RPC layer.
+     * This is dangerous, and any use of this should only be done if you know
+     * what you're doing and you're able to deal with the consequences (which
+     * won't be spelled out here).
      */
     protected boolean relaxCmdNameValidationChecks = false;
 
-    /**
-     * The default init sets up things like host names, etc., and fails if
-     * we can't establish some pretty basic things at connect time. Does
-     * <i>not</i> attempt to actually connect to the target Perforce
-     * server -- this is left for the connect() call, below.
-     *
-         * @see com.perforce.p4java.impl.mapbased.server.Server#init(java.lang.String, int, java.util.Properties)
-     */
+    private PerformanceMonitor perfMonitor = new PerformanceMonitor();
 
-    public ServerStatus init(String host, int port, Properties props)
-                    throws ConfigException, ConnectionException {
-            return init(host, port, props, null);
+    public String getApplicationName() {
+        return applicationName;
     }
 
-    public ServerStatus init(String host, int port, Properties props, UsageOptions opts)
-                    throws ConfigException, ConnectionException {
-        return init(host, port, props, opts, false);
-    }
-
-    public ServerStatus init(String host, int port, Properties props, UsageOptions opts, boolean secure)
-            throws ConfigException, ConnectionException {
-            super.init(host, port, props, opts, secure);
-            try {
-                    this.cmdMapArgs = new HashMap<String, Object>();
-                    this.cmdMapArgs.put(ProtocolCommand.RPC_ARGNAME_PROTOCOL_ZTAGS, "");
-                    this.relaxCmdNameValidationChecks = RpcPropertyDefs.getPropertyAsBoolean(props,
-                            RpcPropertyDefs.RPC_RELAX_CMD_NAME_CHECKS_NICK, false);
-                    this.applicationName = RpcPropertyDefs.getProperty(props,
-                            RpcPropertyDefs.RPC_APPLICATION_NAME_NICK, null);
-                    if (this.getUsageOptions().getHostName() != null) {
-                            // This had better reflect reality...
-                            this.localHostName = this.getUsageOptions().getHostName();
-                    } else {
-                            this.localHostName = java.net.InetAddress.getLocalHost().getHostName();
-                    }
-                    if (this.localHostName == null) {
-                            throw new NullPointerError("Null client host name in RPC connection init");
-                    }
-                    if (!this.useAuthMemoryStore) {
-                            // Search properties for ticket file path, fix for job035376
-                            this.ticketsFilePath = this.props.getProperty(PropertyDefs.TICKET_PATH_KEY_SHORT_FORM,
-                                    this.props.getProperty(PropertyDefs.TICKET_PATH_KEY));
-                            // Search environment variable
-                            if (this.ticketsFilePath == null) {
-                                    this.ticketsFilePath = PerforceEnvironment.getP4Tickets();
-                            }
-                            // Search standard OS location
-                            if (this.ticketsFilePath == null) {
-                                    this.ticketsFilePath = getDefaultP4TicketsFile();
-                            }
-
-                            // Search properties for trust file path
-                            this.trustFilePath = this.props.getProperty(PropertyDefs.TRUST_PATH_KEY_SHORT_FORM,
-                                    this.props.getProperty(PropertyDefs.TRUST_PATH_KEY));
-                            // Search environment variable
-                            if (this.trustFilePath == null) {
-                                    this.trustFilePath = PerforceEnvironment.getP4Trust();
-
-                            }
-                            // Search standard OS location
-                            if (this.trustFilePath == null) {
-                                    this.trustFilePath = getDefaultP4TrustFile();
-                            }
-                    }
-                    this.serverStats = new ServerStats();
-                    // Auth file lock handling properties
-                    this.authFileLockTry = PropertiesHelper.getPropertyAsInt(props,
-                            new String[]{PropertyDefs.AUTH_FILE_LOCK_TRY_KEY_SHORT_FORM,
-                                    PropertyDefs.AUTH_FILE_LOCK_TRY_KEY},
-                            AbstractAuthHelper.DEFAULT_LOCK_TRY);
-                    this.authFileLockDelay = PropertiesHelper.getPropertyAsLong(props,
-                            new String[]{PropertyDefs.AUTH_FILE_LOCK_DELAY_KEY_SHORT_FORM,
-                                    PropertyDefs.AUTH_FILE_LOCK_DELAY_KEY},
-                            AbstractAuthHelper.DEFAULT_LOCK_DELAY);
-                    this.authFileLockWait = PropertiesHelper.getPropertyAsLong(props,
-                            new String[]{PropertyDefs.AUTH_FILE_LOCK_WAIT_KEY_SHORT_FORM,
-                                    PropertyDefs.AUTH_FILE_LOCK_WAIT_KEY},
-                            AbstractAuthHelper.DEFAULT_LOCK_WAIT);
-            } catch (UnknownHostException uhe) {
-                    throw new ConfigException("Unable to determine client host name: "
-                            + uhe.getLocalizedMessage());
-            }
-
-            // Initialize client trust
-            clientTrust = new ClientTrust(this);
-
-            return status;
+    public void setApplicationName(String applicationName) {
+        this.applicationName = applicationName;
     }
 
     /**
-     * Check the fingerprint of the Perforce server SSL connection
+     * Get the RPC user authentication counter.
      *
-     * @throws ConnectionException
+     * @return RPC user authentication counter
      */
-    protected void checkFingerprint(RpcConnection rpcConnection) throws ConnectionException {
-        if (rpcConnection != null && rpcConnection.isSecure() && !rpcConnection.isTrusted()) {
-            if (rpcConnection.getFingerprint() == null) {
-                // p4ic4idea: use a more precise exception
-                throw new SslException("Null fingerprint for this Perforce SSL connection");
-            }
+    public RpcUserAuthCounter getAuthCounter() {
+        return this.authCounter;
+    }
 
-            boolean fpExist = clientTrust.fingerprintExists(rpcConnection.getServerIpPort(),
-                ClientTrust.FINGERPRINT_USER_NAME);
-            boolean fpReplaceExist = clientTrust.fingerprintExists(rpcConnection.getServerIpPort(),
-                ClientTrust.FINGERPRINT_REPLACEMENT_USER_NAME);
+    public int getClientApiLevel() {
+        return clientApiLevel;
+    }
 
-            boolean fpMatch = clientTrust.fingerprintMatches(rpcConnection.getServerIpPort(),
-                ClientTrust.FINGERPRINT_USER_NAME, rpcConnection.getFingerprint());
-            boolean fpReplaceMatch = clientTrust.fingerprintMatches(rpcConnection.getServerIpPort(),
-                ClientTrust.FINGERPRINT_REPLACEMENT_USER_NAME, rpcConnection.getFingerprint());
+    public void setClientApiLevel(int clientApiLevel) {
+        this.clientApiLevel = clientApiLevel;
+    }
 
-            // Not established
-            if ((!fpExist && !fpReplaceExist) || (!fpExist && !fpReplaceMatch)) {
-                throw new TrustException(TrustException.Type.NEW_CONNECTION,
-                    getServerHostPort(),
-                    rpcConnection.getServerIpPort(),
-                    rpcConnection.getFingerprint(),
-                    clientTrust.getMessages().getMessage(
-       			ClientTrust.CLIENT_TRUST_WARNING_NOT_ESTABLISHED,
-                    new Object[] { getServerHostPort(), rpcConnection.getFingerprint() }) +
-                    clientTrust.getMessages().getMessage(
-                    ClientTrust.CLIENT_TRUST_EXCEPTION_NEW_CONNECTION)
-                );
-            }
-            // New key
-            if (!fpMatch && !fpReplaceMatch) {
-                throw new TrustException(TrustException.Type.NEW_KEY,
-                    getServerHostPort(),
-                    rpcConnection.getServerIpPort(),
-                    rpcConnection.getFingerprint(),
-                    clientTrust.getMessages().getMessage(
-                    ClientTrust.CLIENT_TRUST_WARNING_NEW_KEY,
-                    new Object[] { getServerHostPort(), rpcConnection.getFingerprint() }) +
-                    clientTrust.getMessages().getMessage(
-                    ClientTrust.CLIENT_TRUST_EXCEPTION_NEW_KEY)
-                );
-            }
+    public PerformanceMonitor getPerfMonitor() {
+        return perfMonitor;
+    }
 
-            // Use replacement fingerprint
-            if ((!fpExist || !fpMatch) && (fpReplaceExist && fpReplaceMatch)) {
-                    // Install/override fingerprint
-    	    		clientTrust.installFingerprint(rpcConnection.getServerIpPort(), ClientTrust.FINGERPRINT_USER_NAME, rpcConnection.getFingerprint());
-                    // Remove the replacement
-    	    		clientTrust.removeFingerprint(rpcConnection.getServerIpPort(), ClientTrust.FINGERPRINT_REPLACEMENT_USER_NAME);
-            }
+    public void setPerfMonitor(PerformanceMonitor perfMonitor) {
+        this.perfMonitor = perfMonitor;
+    }
 
-            // Trust this connection
-            rpcConnection.setTrusted(true);
+    /**
+     * Get the server's address for the RPC connection.
+     *
+     * @return possibly-null RPC server address
+     */
+    public IServerAddress getRpcServerAddress() {
+        return rpcServerAddress;
+    }
+
+    /**
+     * Set the server's address for the RPC connection.
+     *
+     * @param rpcServerAddress RPC server address
+     */
+    public void setRpcServerAddress(IServerAddress rpcServerAddress) {
+        this.rpcServerAddress = rpcServerAddress;
+    }
+
+    /**
+     * Get the server's address field used for storing authentication tickets.
+     *
+     * @return - possibly null server address
+     */
+    public String getServerAddress() {
+        String serverAddress = this.serverAddress;
+        // If id is null try to use configured server address
+        if (isBlank(serverAddress)) {
+            serverAddress = getServerHostPort();
         }
+        return serverAddress;
     }
 
     /**
-     * Try to establish an actual RPC connection to the target Perforce server.
-     * Most of the actual setup work is done in the RpcConnection and
-     * RpcPacketDispatcher constructors, but associated gubbins such as
-     * auto login, etc., are done in the superclass.
+     * Get the server's host and port used for the RPC connection.
      *
-     * @see com.perforce.p4java.impl.mapbased.server.Server#connect()
+     * @return - possibly null server host and port
      */
-
-    public void connect() throws ConnectionException, AccessException, RequestException, ConfigException {
-        this.connectionStart = System.currentTimeMillis();
-        super.connect();
-    }
-
-    /**
-     * Try to cleanly disconnect from the Perforce server at the other end
-     * of the current connection (with the emphasis on "cleanly"). This
-     * should theoretically include sending a release2 message, but we
-     * don't always get the chance to do that.
-     *
-     * @see com.perforce.p4java.impl.mapbased.server.Server#disconnect()
-     */
-    public void disconnect() throws ConnectionException, AccessException {
-            super.disconnect();
-
-            if (this.connectionStart != 0) {
-                    Log.stats("RPC connection connected for "
-                                    + (System.currentTimeMillis() - this.connectionStart)
-                                    + " msec elapsed time");
+    public String getServerHostPort() {
+        String serverHostPort = null;
+        if (isNotBlank(serverHost)) {
+            serverHostPort = serverHost;
+            if (serverPort != UNKNOWN_SERVER_PORT) {
+                serverHostPort += ":" + String.valueOf(serverPort);
             }
-            this.serverStats.logStats();
-
-            // Clear up all counts for this RPC server
-            this.authCounter.clearCount();
+        } else if (serverPort != UNKNOWN_SERVER_PORT) {
+            serverHostPort = String.valueOf(serverPort);
+        }
+        return serverHostPort;
     }
 
     /**
-     * @see com.perforce.p4java.server.IServer#supportsSmartMove()
+     * Get the server's id field used for storing authentication tickets. This
+     * id should only be used as a server address portion for entries in a p4
+     * tickets file.
+     *
+     * @return - possibly null server id
      */
-    public boolean supportsSmartMove()  throws ConnectionException,
-                            RequestException, AccessException {
-            // Return true iff server version >= 2009.1
-            // and move command is not disabled on server
-
-            if (this.serverVersion < 20091)
-                return false;
-            IServerInfo info = getServerInfo();
-            if (info == null)
-                return false;
-            return !info.isMoveDisabled();
+    public String getServerId() {
+        return serverId;
     }
 
+// --- FIXME OLD STUFF THAT MAY NEED TO BE KEPT
+
     /**
-     * @see com.perforce.p4java.server.IOptionsServer#getErrorOrInfoStr(java.util.Map)
+     * @deprecated use {@link com.perforce.p4java.impl.mapbased.server.cmd.ResultMapParser#getErrorOrInfoStr(Map)}
      */
+    @Deprecated
     // p4ic4idea change: returning an IServerMessage instead of a string.
     public IServerMessage getErrorOrInfoStr(Map<String, Object> map) {
-            return getServerMessage(map, MessageSeverityCode.E_INFO);
-    }
-
-    public boolean isInfoMessage(Map<String, Object> map) {
-            if (map != null) {
-                    return (RpcMessage.getSeverity((String) map.get("code0")) == MessageSeverityCode.E_INFO);
-            }
-            return false;
-    }
-
-    public int getSeverityCode(Map<String, Object> map) {
-            // Note: only gets first severity, i.e. code0:
-
-            if ((map != null) && map.containsKey("code0")) {
-                    return RpcMessage.getSeverity((String) map.get("code0"));
-            }
-
-            return MessageSeverityCode.E_EMPTY;
-    }
-
-    protected int getGenericCode(Map<String, Object> map) {
-            // Note: only gets first code, i.e. code0:
-
-            if ((map != null) && map.containsKey("code0")) {
-                    return RpcMessage.getGeneric((String) map.get("code0"));
-            }
-
-            return MessageGenericCode.EV_NONE;
-    }
-
-    // p4ic4idea change: returning an IServerMessage instead of a string.
-    private IServerMessage getServerMessage(Map<String, Object> map, int minimumCode ) {
-            if (map != null) {
-                    int index = 0;
-                    String code = (String) map.get(RpcMessage.CODE + index);
-
-                    List<ISingleServerMessage> singleMessages = new ArrayList<ISingleServerMessage>();
-
-                    while (code != null) {
-                            singleMessages.add(new ServerMessage.SingleServerMessage(code, index, map));
-                            index++;
-                            code = (String) map.get(RpcMessage.CODE + index);
-                    }
-
-                    // Only return a string if at least one severity code was found
-                    if (! singleMessages.isEmpty()) {
-                            final ServerMessage msg = new ServerMessage(singleMessages, map);
-                            if (msg.getSeverity() >= minimumCode) {
-                                    return msg;
-                            }
-                    }
-            }
-            return null;
+        return ResultMapParser.getErrorOrInfoStr(map);
     }
 
     /**
@@ -495,36 +399,11 @@ public abstract class RpcServer extends Server {
      * p4ic4idea changed the return code from String to IServerMessage
      *
      * @see com.perforce.p4java.server.IOptionsServer#getErrorStr(Map)
+     * @deprecated use {@link com.perforce.p4java.impl.mapbased.server.cmd.ResultMapParser#getErrorStr(Map)}
      */
+    @Deprecated
     public IServerMessage getErrorStr(Map<String, Object> map) {
-            return getServerMessage(map, MessageSeverityCode.E_FAILED);
-    }
-
-    /**
-     * @see com.perforce.p4java.server.IOptionsServer#getInfoStr(java.util.Map)
-     */
-    public String getInfoStr(Map<String, Object> map) {
-            if (map != null) {
-                    String code0 = (String) map.get("code0");
-
-                    int severity = RpcMessage.getSeverity(code0);
-
-                    if (severity == MessageSeverityCode.E_INFO) {
-                            String fmtStr = (String) map.get("fmt0");
-
-                            if (fmtStr == null) {
-                                    return "";	// a la the p4 command line version
-                            }
-
-                            if (!fmtStr.contains("%")) {
-                                    return fmtStr;
-                            }
-
-                            return RpcMessage.interpolateArgs(fmtStr, map);
-                    }
-            }
-
-            return null;
+        return ResultMapParser.getErrorStr(map);
     }
 
     /**
@@ -533,206 +412,738 @@ public abstract class RpcServer extends Server {
     // p4ic4idea change: takes an IServerMessage instead of a string.
     @Override
     public AuthenticationFailedException.ErrorType getAuthFailType(IServerMessage err) {
-            if (err != null) {
-                // p4ic4idea: TODO this needs to check the error code instead of the message,
-                // in case the user sets the language.
-                    for (int i = 0; i < accessErrMsgs.length; i++) {
-                            if (err.hasMessageFragment(accessErrMsgs[i])) {
-                                    return accessErrTypes[i];
-                            }
-                    }
+        if (err != null) {
+            // p4ic4idea: TODO this needs to check the error code instead of the message,
+            // in case the user sets the language.
+            for (int i = 0; i < accessErrMsgs.length; i++) {
+                if (err.hasMessageFragment(accessErrMsgs[i])) {
+                    return accessErrTypes[i];
+                }
             }
+        }
 
-            return null;
+        return null;
+    }
+
+// -----------------
+
+    /**
+     * Set the server's id field used for storing authentication tickets. The id
+     * specified here will be used when saving ticket values to a p4 tickets
+     * file. This field should only be set to the server id returned as part of
+     * a server message.
+     */
+    public void setServerId(String serverId) {
+        this.serverId = serverId;
+    }
+
+    @Override
+    public String getTicketsFilePath() {
+        return ticketsFilePath;
+    }
+
+    @Override
+    public void setTicketsFilePath(String ticketsFilePath) {
+        Validate.notBlank(ticketsFilePath, "ticketsFilePath shouldn't null or empty");
+        this.ticketsFilePath = ticketsFilePath;
+    }
+
+    @Override
+    public String getTrustFilePath() {
+        return this.trustFilePath;
+    }
+
+    @Override
+    public void setTrustFilePath(String trustFilePath) {
+        Validate.notBlank(trustFilePath, "ticketsFilePath shouldn't null or empty");
+        this.trustFilePath = trustFilePath;
+    }
+
+    protected boolean isRelaxCmdNameValidationChecks() {
+        return relaxCmdNameValidationChecks;
+    }
+
+    protected void setRelaxCmdNameValidationChecks(boolean relaxCmdNameValidationChecks) {
+        this.relaxCmdNameValidationChecks = relaxCmdNameValidationChecks;
+    }
+
+    private boolean isClusterMember() {
+        return serverInfo != null && serverInfo.getServerCluster() != null;
     }
 
     /**
-     * @see com.perforce.p4java.impl.mapbased.server.Server#isLoginNotRequired(java.lang.String)
+     * @deprecated use {@link ResultMapParser#isAuthFail(IServerMessage)}
      */
     @Override
-    public boolean isLoginNotRequired(String msgStr) {
-            if (msgStr != null) {
-                    if (msgStr.contains(PASSWORD_NOT_SET_STRING)) {
-                            return true;
+    public boolean isAuthFail(final IServerMessage errStr) {
+        return ResultMapParser.isAuthFail(errStr);
+    }
+
+    /**
+     * @deprecated use {@link com.perforce.p4java.impl.mapbased.server.cmd.ResultMapParser#getInfoStr(Map)}
+     */
+    @Override
+    public IServerMessage getInfoStr(final Map<String, Object> map) {
+        return ResultMapParser.getInfoStr(map);
+    }
+
+    /**
+     * @deprecated use {@link com.perforce.p4java.impl.mapbased.server.cmd.ResultMapParser#isInfoMessage(Map)}
+     */
+    @Deprecated
+    public boolean isInfoMessage(final Map<String, Object> map) {
+        return ResultMapParser.isInfoMessage(map);
+    }
+
+    @Override
+    public void setAuthTicket(final String userName, final String authTicket) {
+
+        Validate.notBlank(userName, "Null or empty userName passed to the setAuthTicket method.");
+        String lowerCaseableUserName = userName;
+        // Must downcase the username to find or save a ticket when
+        // connected to a case insensitive server.
+        if (!isCaseSensitive() && isNotBlank(userName)) {
+            lowerCaseableUserName = userName.toLowerCase();
+        }
+        String serverAddress = firstNonBlank(getServerId(), getServerAddress());
+        // Handling 'serverCluster'
+        if (isClusterMember()) {
+            serverAddress = serverInfo.getServerCluster();
+        }
+        Validate.notBlank(serverAddress, "Null serverAddress in the setAuthTicket method.");
+        if (isBlank(authTicket)) {
+            authTickets.remove(composeAuthTicketEntryKey(lowerCaseableUserName, serverAddress));
+        } else {
+            authTickets.put(composeAuthTicketEntryKey(lowerCaseableUserName, serverAddress),
+                    authTicket);
+        }
+    }
+
+    @Override
+    public String getTrust() throws P4JavaException {
+        RpcConnection rpcConnection = null;
+
+        try {
+            rpcConnection = new RpcStreamConnection(serverHost, serverPort, props, serverStats,
+                    charset, secure);
+
+            return rpcConnection.getFingerprint();
+        } finally {
+            closeQuietly(rpcConnection);
+        }
+    }
+
+    @Override
+    public String addTrust(TrustOptions opts) throws P4JavaException {
+        return addTrust(null, opts);
+    }
+
+    @Override
+    public String addTrust(final String fingerprintValue) throws P4JavaException {
+        Validate.notBlank(fingerprintValue, "fingerprintValue shouldn't null or empty");
+        return addTrust(fingerprintValue, null);
+    }
+
+    @Override
+    public String addTrust(final String fingerprintValue, final TrustOptions options)
+            throws P4JavaException {
+
+        RpcConnection rpcConnection = null;
+        try {
+            rpcConnection = new RpcStreamConnection(serverHost, serverPort, props, serverStats,
+                    charset, secure);
+
+            TrustOptions opts = ObjectUtils.firstNonNull(options, new TrustOptions());
+            // Assume '-y' and '-f' options, if specified newFingerprint value.
+            if (isNotBlank(fingerprintValue)) {
+                opts.setAutoAccept(true);
+                opts.setForce(true);
+            }
+
+            String originalFingerprint = rpcConnection.getFingerprint();
+            PerforceMessages messages = clientTrust.getMessages();
+            String serverHostPort = getServerHostPort();
+            Object[] warningParams = {serverHostPort, originalFingerprint};
+            String newConnectionWarning = messages.getMessage(CLIENT_TRUST_WARNING_NEW_CONNECTION,
+                    warningParams);
+            String newKeyWarning = messages.getMessage(CLIENT_TRUST_WARNING_NEW_KEY, warningParams);
+            String serverIpPort = rpcConnection.getServerIpPort();
+            boolean fingerprintExists = fingerprintExists(serverIpPort, FINGERPRINT_USER_NAME);
+            boolean fingerprintMatches = fingerprintMatches(serverIpPort, FINGERPRINT_USER_NAME,
+                    originalFingerprint);
+            boolean fingerprintReplaceExists = fingerprintExists(serverIpPort,
+                    FINGERPRINT_REPLACEMENT_USER_NAME);
+            boolean fingerprintReplaceMatches = fingerprintMatches(serverIpPort,
+                    FINGERPRINT_REPLACEMENT_USER_NAME, originalFingerprint);
+
+            // auto refuse
+            if (opts.isAutoRefuse()) {
+                // new connection
+                if (!fingerprintExists) {
+                    return newConnectionWarning;
+                }
+                // new key
+                if (!fingerprintMatches) {
+                    return newKeyWarning;
+                }
+            }
+
+            // check and use replacement newFingerprint
+            if (checkAndUseReplacementFingerprint(fingerprintExists, fingerprintMatches,
+                    fingerprintReplaceExists, fingerprintReplaceMatches, rpcConnection)) {
+
+                return messages.getMessage(CLIENT_TRUST_ALREADY_ESTABLISHED);
+            }
+
+            String fingerprintUser = firstConditionIsTrue(opts.isReplacement(),
+                    FINGERPRINT_REPLACEMENT_USER_NAME, FINGERPRINT_USER_NAME);
+            String newFingerprint = firstNonBlank(fingerprintValue, originalFingerprint);
+            String trustAddedInfo = messages.getMessage(CLIENT_TRUST_ADDED,
+                    new Object[]{serverHostPort, serverIpPort});
+            // new connection
+            if (installFingerprintIfNewConnection(fingerprintExists, rpcConnection, opts,
+                    fingerprintUser, newFingerprint)) {
+
+                return newConnectionWarning + trustAddedInfo;
+            }
+
+            // new key
+            if (installNewFingerprintIfNewKey(fingerprintMatches, rpcConnection, opts,
+                    fingerprintUser, newFingerprint)) {
+
+                return newKeyWarning + trustAddedInfo;
+            }
+
+            if (fingerprintMatches && isNotBlank(fingerprintValue)) {
+                // install newFingerprint
+                clientTrust.installFingerprint(serverIpPort, fingerprintUser, newFingerprint);
+                return trustAddedInfo;
+            }
+
+            // trust already established
+            return messages.getMessage(CLIENT_TRUST_ALREADY_ESTABLISHED);
+        } finally {
+            closeQuietly(rpcConnection);
+        }
+    }
+
+    @Override
+    public String removeTrust() throws P4JavaException {
+        return removeTrust(null);
+    }
+
+    @Override
+    public String removeTrust(final TrustOptions opts) throws P4JavaException {
+        RpcConnection rpcConnection = null;
+
+        try {
+            rpcConnection = new RpcStreamConnection(serverHost, serverPort, props, serverStats,
+                    charset, secure);
+
+            String fingerprintUser = firstConditionIsTrue(nonNull(opts) && opts.isReplacement(),
+                    FINGERPRINT_REPLACEMENT_USER_NAME, FINGERPRINT_USER_NAME);
+
+            String message = EMPTY;
+            PerforceMessages messages = clientTrust.getMessages();
+            String fingerprint = rpcConnection.getFingerprint();
+            Object[] params = {getServerHostPort(), fingerprint};
+            String serverIpPort = rpcConnection.getServerIpPort();
+            // new connection
+            if (!fingerprintExists(serverIpPort, FINGERPRINT_USER_NAME)) {
+                message = messages.getMessage(CLIENT_TRUST_WARNING_NEW_CONNECTION, params);
+            } else {
+                // new key
+                if (!fingerprintMatches(serverIpPort, FINGERPRINT_USER_NAME, fingerprint)) {
+                    message = messages.getMessage(CLIENT_TRUST_WARNING_NEW_KEY, params);
+                }
+            }
+
+            // remove the fingerprint from the trust file
+            clientTrust.removeFingerprint(serverIpPort, fingerprintUser);
+            return message + messages.getMessage(CLIENT_TRUST_REMOVED,
+                    new Object[]{getServerHostPort(), serverIpPort});
+        } finally {
+            closeQuietly(rpcConnection);
+        }
+    }
+
+    @Override
+    public List<Fingerprint> getTrusts() throws P4JavaException {
+        return getTrusts(null);
+    }
+
+    @Override
+    public List<Fingerprint> getTrusts(final TrustOptions opts) throws P4JavaException {
+        Fingerprint[] fingerprints = loadFingerprints();
+        if (nonNull(fingerprints)) {
+            List<Fingerprint> fingerprintsList = new ArrayList<Fingerprint>();
+            List<Fingerprint> replacementsList = new ArrayList<Fingerprint>();
+            for (Fingerprint fingerprint : fingerprints) {
+                if (nonNull(fingerprint) && isNotBlank(fingerprint.getUserName())) {
+                    if (FINGERPRINT_REPLACEMENT_USER_NAME
+                            .equalsIgnoreCase(fingerprint.getUserName())) {
+                        replacementsList.add(fingerprint);
+                    } else {
+                        fingerprintsList.add(fingerprint);
                     }
+                }
             }
+            if (nonNull(opts) && opts.isReplacement()) {
+                return replacementsList;
+            } else {
+                return fingerprintsList;
+            }
+        }
+        return Collections.emptyList();
+    }
 
+    /**
+     * Try to establish an actual RPC connection to the target Perforce server.
+     * Most of the actual setup work is done in the RpcConnection and
+     * RpcPacketDispatcher constructors, but associated gubbins such as auto
+     * login, etc., are done in the superclass.
+     */
+    @Override
+    public void connect()
+            throws ConnectionException, AccessException, RequestException, ConfigException {
+        connectionStart = System.currentTimeMillis();
+        super.connect();
+    }
+
+    /**
+     * Try to cleanly disconnect from the Perforce server at the other end of
+     * the current connection (with the emphasis on "cleanly"). This should
+     * theoretically include sending a release2 message, but we don't always get
+     * the chance to do that.
+     */
+    @Override
+    public void disconnect() throws ConnectionException, AccessException {
+        super.disconnect();
+
+        if (connectionStart != 0) {
+            Log.stats("RPC connection connected for %s msec elapsed time",
+                    (System.currentTimeMillis() - connectionStart));
+        }
+        serverStats.logStats();
+
+        // Clear up all counts for this RPC server
+        authCounter.clearCount();
+    }
+
+    @Override
+    public String getAuthTicket(final String userName) {
+        // Must downcase the username to find or save a ticket when
+        // connected to a case insensitive server.
+        String lowerCaseableUserName = userName;
+        if (!isCaseSensitive() && isNotBlank(userName)) {
+            lowerCaseableUserName = userName.toLowerCase();
+        }
+        String serverAddress = firstNonBlank(getServerId(), getServerAddress());
+        // Handling 'serverCluster'
+        if (isClusterMember()) {
+            serverAddress = serverInfo.getServerCluster();
+        }
+        if (isNotBlank(lowerCaseableUserName) && isNotBlank(serverAddress)) {
+            return authTickets.get(composeAuthTicketEntryKey(lowerCaseableUserName, serverAddress));
+        }
+        return null;
+    }
+
+    // p4ic4idea: takes a IServerMessage
+    @Override
+    public boolean isLoginNotRequired(IServerMessage msgStr) {
+        return msgStr != null && msgStr.hasMessageFragment(PASSWORD_NOT_SET_STRING);
+    }
+
+    @Override
+    public boolean supportsSmartMove()
+            throws ConnectionException, RequestException, AccessException {
+        // Return true iff server version >= 2009.1
+        // and move command is not disabled on server
+        if (serverVersion < 20091) {
             return false;
+        }
+
+        IServerInfo info = getServerInfo();
+        return nonNull(info) && !info.isMoveDisabled();
     }
 
-    public int getClientApiLevel() {
-            return this.clientApiLevel;
-    }
+    public ServerStatus init(final String host, final int port, final Properties properties,
+            final UsageOptions opts, final boolean secure)
+            throws ConfigException, ConnectionException {
 
-    public void setClientApiLevel(int clientApiLevel) {
-            this.clientApiLevel = clientApiLevel;
-    }
-
-    public String getApplicationName() {
-            return this.applicationName;
-    }
-
-    public void setApplicationName(String applicationName) {
-            this.applicationName = applicationName;
-    }
-
-    public PerformanceMonitor getPerfMonitor() {
-            return this.perfMonitor;
-    }
-
-    public void setPerfMonitor(PerformanceMonitor perfMonitor) {
-            this.perfMonitor = perfMonitor;
-    }
-
-    protected String getOsTypeForEnv() {
-            String osName = System.getProperty(RPC_ENV_OS_NAME_KEY);
-
-            if ((osName != null) && osName.toLowerCase(Locale.ENGLISH).contains(RPC_ENV_WINDOWS_PREFIX)){
-                    return RPC_ENV_WINDOWS_SPEC;
+        super.init(host, port, properties, opts, secure);
+        try {
+            cmdMapArgs = new HashMap<String, Object>();
+            cmdMapArgs.put(ProtocolCommand.RPC_ARGNAME_PROTOCOL_ZTAGS, EMPTY);
+            relaxCmdNameValidationChecks = getPropertyAsBoolean(properties,
+                    RPC_RELAX_CMD_NAME_CHECKS_NICK, false);
+            applicationName = RpcPropertyDefs.getProperty(properties, RPC_APPLICATION_NAME_NICK);
+            if (isNotBlank(getUsageOptions().getHostName())) {
+                localHostName = getUsageOptions().getHostName();
+            } else {
+                localHostName = InetAddress.getLocalHost().getHostName();
             }
 
-            return RPC_ENV_UNIX_SPEC; // sic -- as seen in the C++ API...
+            Validate.notBlank(localHostName,
+                    "Null or empty client host name in RPC connection init");
+
+            if (!useAuthMemoryStore) {
+                // Search properties for ticket file path, fix for job035376
+                ticketsFilePath = getPropertyByKeys(props, TICKET_PATH_KEY_SHORT_FORM,
+                        TICKET_PATH_KEY);
+                // Search environment variable
+                if (isBlank(ticketsFilePath)) {
+                    ticketsFilePath = PerforceEnvironment.getP4Tickets();
+                }
+                // Search standard OS location
+                if (isBlank(ticketsFilePath)) {
+                    ticketsFilePath = getDefaultP4TicketsFile();
+                }
+
+                // Search properties for trust file path
+                trustFilePath = getPropertyByKeys(props, TRUST_PATH_KEY_SHORT_FORM, TRUST_PATH_KEY);
+                // Search environment variable
+                if (isBlank(trustFilePath)) {
+                    trustFilePath = PerforceEnvironment.getP4Trust();
+                }
+                // Search standard OS location
+                if (isBlank(trustFilePath)) {
+                    trustFilePath = getDefaultP4TrustFile();
+                }
+            }
+            serverStats = new ServerStats();
+            // Auth file lock handling properties
+            authFileLockTry = getPropertyAsInt(properties,
+                    new String[]{AUTH_FILE_LOCK_TRY_KEY_SHORT_FORM, AUTH_FILE_LOCK_TRY_KEY},
+                    AbstractAuthHelper.DEFAULT_LOCK_TRY);
+
+            authFileLockDelay = getPropertyAsLong(properties,
+                    new String[]{AUTH_FILE_LOCK_DELAY_KEY_SHORT_FORM, AUTH_FILE_LOCK_DELAY_KEY},
+                    AbstractAuthHelper.DEFAULT_LOCK_DELAY);
+
+            authFileLockWait = getPropertyAsLong(properties,
+                    new String[]{AUTH_FILE_LOCK_WAIT_KEY_SHORT_FORM, AUTH_FILE_LOCK_WAIT_KEY},
+                    AbstractAuthHelper.DEFAULT_LOCK_WAIT);
+        } catch (UnknownHostException uhe) {
+            throw new ConfigException(
+                    "Unable to determine client host name: %s" + uhe.getLocalizedMessage());
+        }
+
+        // Initialize client trust
+        clientTrust = new ClientTrust(this);
+        return status;
     }
 
-    protected String getLanguageForEnv() {
-            return this.getUsageOptions().getTextLanguage();
+    @Override
+    public ServerStatus init(final String host, final int port, final Properties props,
+            final UsageOptions opts) throws ConfigException, ConnectionException {
+
+        return init(host, port, props, opts, false);
+    }
+
+    /**
+     * The default init sets up things like host names, etc., and fails if we
+     * can't establish some pretty basic things at connect time. Does <i>not</i>
+     * attempt to actually connect to the target Perforce server -- this is left
+     * for the connect() call, below.
+     */
+    @Override
+    public ServerStatus init(final String host, final int port, final Properties props)
+            throws ConfigException, ConnectionException {
+
+        return init(host, port, props, null);
+    }
+
+    private boolean checkAndUseReplacementFingerprint(final boolean fingerprintExists,
+            final boolean fingerprintMatches, final boolean fingerprintReplaceExists,
+            final boolean fingerprintReplaceMatches, final RpcConnection rpcConnection)
+            throws TrustException {
+
+        if ((!fingerprintExists || !fingerprintMatches)
+                && (fingerprintReplaceExists && fingerprintReplaceMatches)) {
+            // Install/override newFingerprint
+            clientTrust.installFingerprint(rpcConnection.getServerIpPort(), FINGERPRINT_USER_NAME,
+                    rpcConnection.getFingerprint());
+            // Remove the replacement
+            clientTrust.removeFingerprint(rpcConnection.getServerIpPort(),
+                    FINGERPRINT_REPLACEMENT_USER_NAME);
+
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Check the fingerprint of the Perforce server SSL connection
+     */
+    protected void checkFingerprint(final RpcConnection rpcConnection) throws ConnectionException {
+        if (nonNull(rpcConnection) && rpcConnection.isSecure() && !rpcConnection.isTrusted()) {
+            String fingerprint = rpcConnection.getFingerprint();
+            throwConnectionExceptionIfConditionFails(isNotBlank(fingerprint),
+                    "Null fingerprint for this Perforce SSL connection");
+
+            String serverIpPort = rpcConnection.getServerIpPort();
+            boolean fingerprintExists = fingerprintExists(serverIpPort, FINGERPRINT_USER_NAME);
+            boolean fingerprintReplaceExist = fingerprintExists(serverIpPort,
+                    FINGERPRINT_REPLACEMENT_USER_NAME);
+
+            boolean fingerprintMatches = clientTrust.fingerprintMatches(serverIpPort,
+                    FINGERPRINT_USER_NAME, fingerprint);
+            boolean fingerprintReplaceMatches = fingerprintMatches(serverIpPort,
+                    FINGERPRINT_REPLACEMENT_USER_NAME, fingerprint);
+
+            boolean isNotEstablished = (!fingerprintExists && !fingerprintReplaceExist)
+                    || (!fingerprintExists && !fingerprintReplaceMatches);
+
+            throwTrustExceptionIfConditionIsTrue(isNotEstablished, rpcConnection, NEW_CONNECTION,
+                    CLIENT_TRUST_WARNING_NOT_ESTABLISHED, CLIENT_TRUST_EXCEPTION_NEW_CONNECTION);
+
+            boolean isNewKey = !fingerprintMatches && !fingerprintReplaceMatches;
+            throwTrustExceptionIfConditionIsTrue(isNewKey, rpcConnection, NEW_KEY,
+                    CLIENT_TRUST_WARNING_NEW_KEY, CLIENT_TRUST_EXCEPTION_NEW_KEY);
+
+            // Use replacement fingerprint
+            if ((!fingerprintExists || !fingerprintMatches)
+                    && (fingerprintReplaceExist && fingerprintReplaceMatches)) {
+                // Install/override fingerprint
+                clientTrust.installFingerprint(serverIpPort, FINGERPRINT_USER_NAME, fingerprint);
+                // Remove the replacement
+                clientTrust.removeFingerprint(serverIpPort, FINGERPRINT_REPLACEMENT_USER_NAME);
+            }
+
+            // Trust this connection
+            rpcConnection.setTrusted(true);
+        }
+    }
+
+    private boolean fingerprintExists(final String serverIpPort, final String fingerprintUser) {
+        return clientTrust.fingerprintExists(serverIpPort, fingerprintUser);
+    }
+
+    private boolean fingerprintMatches(final String serverIpPort, final String fingerprintUser,
+            final String fingerprint) {
+
+        return clientTrust.fingerprintMatches(serverIpPort, fingerprintUser, fingerprint);
+    }
+
+    private void throwTrustExceptionIfConditionIsTrue(final boolean expression,
+            final RpcConnection rpcConnection, final TrustException.Type type,
+            final String warningMessageKey, final String exceptionMessageKey)
+            throws TrustException {
+        if (expression) {
+
+            throwTrustException(rpcConnection, type, warningMessageKey, exceptionMessageKey);
+        }
+    }
+
+    private void closeQuietly(final RpcConnection rpcConnection)
+            throws ConnectionException {
+        if (nonNull(rpcConnection)) {
+            rpcConnection.disconnect(null);
+        }
+    }
+
+    /**
+     * Compose the key for an auth ticket entry
+     */
+    protected String composeAuthTicketEntryKey(final String userName, final String serverAddress) {
+
+        Validate.notBlank(userName,
+                "Null userName passed to the composeAuthTicketEntryKey method.");
+        Validate.notBlank(serverAddress,
+                "Null serverAddress passed to the composeAuthTicketEntryKey method.");
+
+        String wellFormedServerAddress = serverAddress;
+
+        if (indexOf(serverAddress, ':') == -1) {
+            wellFormedServerAddress = "localhost:" + serverAddress;
+        }
+        return (wellFormedServerAddress + "=" + userName);
     }
 
     protected String getClientNameForEnv() {
-            if (getClientName() != null) {
-                    return getClientName();
-            } else {
-                    return this.getUsageOptions().getUnsetClientName();
-            }
+        if (isNotBlank(clientName)) {
+            return clientName;
+        } else {
+            return getUsageOptions().getUnsetClientName();
+        }
     }
 
     protected String getHostForEnv() {
-            if (localHostName != null) {
-                    return localHostName;
+        if (isNotBlank(localHostName)) {
+            return localHostName;
+        }
+        return RPC_ENV_NOHOST_SPEC;
+    }
+
+    protected String getLanguageForEnv() {
+        return getUsageOptions().getTextLanguage();
+    }
+
+    protected String getOsTypeForEnv() {
+        String osName = System.getProperty(RPC_ENV_OS_NAME_KEY);
+
+        if (isNotBlank(osName)
+                && osName.toLowerCase(Locale.ENGLISH).contains(RPC_ENV_WINDOWS_PREFIX)) {
+            return RPC_ENV_WINDOWS_SPEC;
+        }
+
+        return RPC_ENV_UNIX_SPEC; // sic -- as seen in the C++ API...
+    }
+
+    /**
+     * Get the RPC packet field rule for skipping the charset conversion of a
+     * range of RPC packet fields; leave the values as bytes.
+     * <p>
+     * <p>
+     * Note: currently only supporting the "export" command.
+     */
+    protected RpcPacketFieldRule getRpcPacketFieldRule(final Map<String, Object> inMap,
+            final CmdSpec cmdSpec) {
+
+        if (nonNull(inMap) && nonNull(cmdSpec)) {
+            if (cmdSpec == CmdSpec.EXPORT && inMap.containsKey(cmdSpec.toString())
+                    && (inMap.get(cmdSpec.toString()) instanceof Map<?, ?>)) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> cmdMap = (Map<String, Object>) inMap.remove(cmdSpec.toString());
+                if (nonNull(cmdMap)) {
+                    return RpcPacketFieldRule.getInstance(cmdMap);
+                }
             }
-            return RPC_ENV_NOHOST_SPEC;
+        }
+        return null;
+    }
+
+    public String getSecretKey() {
+        return getSecretKey(userName);
+    }
+
+    public void setSecretKey(String secretKey) {
+        setSecretKey(userName, secretKey);
+    }
+
+    public String getSecretKey(String userName) {
+        if (isNotBlank(userName)) {
+            return secretKeys.get(userName);
+        }
+        return null;
     }
 
     protected String getUserForEnv() {
-            if (getUserName() != null) {
-                    return getUserName();
-            }
-            return this.getUsageOptions().getUnsetUserName();
+        if (isNotBlank(userName)) {
+            return userName;
+        }
+        return getUsageOptions().getUnsetUserName();
     }
 
+    private boolean installFingerprintIfNewConnection(final boolean fingerprintExists,
+            final RpcConnection rpcConnection, final TrustOptions trustOptions,
+            final String fingerprintUser, final String newFingerprint) throws TrustException {
 
-    protected void processCmdCallbacks(int cmdCallBackKey, long timeTaken, List<Map<String, Object>> resultMaps) {
-            this.commandCallback.completedServerCommand(cmdCallBackKey, timeTaken);
-            if (resultMaps != null) {
-                    for (Map<String, Object> map : resultMaps) {
-                            // p4ic4idea: use IServerMessage instead of string
-                            final IServerMessage msg = getErrorOrInfoStr(map);
-                            if (msg != null) {
-                                    int severity = msg.getSeverity();
-                                    if (severity != MessageSeverityCode.E_EMPTY) {
-                                            this.commandCallback.receivedServerMessage(
-                                                    cmdCallBackKey, msg.getGeneric(), severity, msg);
-                                    }
-
-                                    if (msg.getSeverity() == MessageSeverityCode.E_INFO) {
-                                            this.commandCallback.receivedServerInfoLine(cmdCallBackKey, msg);
-                                    } else if (severity >= MessageSeverityCode.E_FAILED) {
-                                            this.commandCallback.receivedServerErrorLine(cmdCallBackKey, msg);
-                                    }
-                            }
-                    }
+        if (!fingerprintExists) {
+            if (installNewFingerprintIfIsAutoAccept(rpcConnection, trustOptions, fingerprintUser,
+                    newFingerprint)) {
+                return true;
             }
+
+            // didn't accept
+            throwTrustException(rpcConnection, NEW_CONNECTION, CLIENT_TRUST_WARNING_NEW_CONNECTION,
+                    CLIENT_TRUST_ADD_EXCEPTION_NEW_CONNECTION);
+        }
+        return false;
+    }
+
+    private boolean installNewFingerprintIfNewKey(final boolean fingerprintMatches,
+            final RpcConnection rpcConnection, final TrustOptions trustOptions,
+            final String fingerprintUser, final String newFingerprint) throws TrustException {
+
+        if (!fingerprintMatches) {
+            // force install
+            if (trustOptions.isForce()) {
+                if (installNewFingerprintIfIsAutoAccept(rpcConnection, trustOptions,
+                        fingerprintUser, newFingerprint)) {
+                    return true;
+                }
+            }
+            // didn't accept / not force install
+            throwTrustException(rpcConnection, NEW_KEY, CLIENT_TRUST_WARNING_NEW_KEY,
+                    CLIENT_TRUST_ADD_EXCEPTION_NEW_KEY);
+        }
+        return false;
+    }
+
+    private boolean installNewFingerprintIfIsAutoAccept(final RpcConnection rpcConnection,
+            final TrustOptions trustOptions, final String fingerprintUser,
+            final String newFingerprint) throws TrustException {
+
+        if (trustOptions.isAutoAccept()) {
+            // install newFingerprint
+            clientTrust.installFingerprint(rpcConnection.getServerIpPort(), fingerprintUser,
+                    newFingerprint);
+            return true;
+        }
+
+        return false;
+    }
+
+    private void throwTrustException(final RpcConnection rpcConnection,
+            final TrustException.Type type, final String warningMessageKey,
+            final String exceptionMessageKey) throws TrustException {
+
+        Object[] warningParams = {getServerHostPort(), rpcConnection.getFingerprint()};
+        String warningMessage = clientTrust.getMessages().getMessage(warningMessageKey,
+                warningParams);
+        String exceptionMessage = clientTrust.getMessages().getMessage(exceptionMessageKey);
+        throw new TrustException(type, getServerHostPort(), rpcConnection.getServerIpPort(),
+                rpcConnection.getFingerprint(), warningMessage + exceptionMessage);
     }
 
     /**
-     * Save current ticket returned from {@link #getAuthTicket()}.
+     * Get the p4trust entry value for the server IP and port based upon a
+     * search of either the file found at
+     * {@link PropertyDefs#TRUST_PATH_KEY_SHORT_FORM},
+     * {@link PropertyDefs#TRUST_PATH_KEY}, the P4TRUST environment variable or
+     * the standard p4trust file location for the current OS. Will return null
+     * if not found or if an error occurred attempt to lookup the value.
      *
-     * @see #saveTicket(String)
-     * @throws P4JavaException
+     * @return - fingerprint or null if not found.
      */
-    public void saveCurrentTicket() throws P4JavaException {
-            saveTicket(getAuthTicket());
+    public Fingerprint loadFingerprint(final String serverIpPort, final String fingerprintUser) {
+
+        if (isBlank(serverIpPort) || isBlank(fingerprintUser)) {
+            return null;
+        }
+
+        Fingerprint fingerprint = null;
+        try {
+            fingerprint = FingerprintsHelper.getFingerprint(fingerprintUser, serverIpPort,
+                    trustFilePath);
+        } catch (IOException e) {
+            Log.error(e.getMessage());
+        }
+
+        return fingerprint;
     }
 
     /**
-     * Save specified auth ticket value as associate with this server's address
-     * and configured user returned from {@link #getUserName()}. This will
-     * attempt to write an entry to the p4tickets file either specified as the
-     * P4TICKETS environment variable or at the OS specific default location. If
-     * the ticket value is null then the current entry in the will be cleared.
+     * Get the p4trust entries from the file found at
+     * {@link PropertyDefs#TRUST_PATH_KEY_SHORT_FORM},
+     * {@link PropertyDefs#TRUST_PATH_KEY}, the P4TRUST environment variable or
+     * the standard p4trust file location for the current OS. Will return null
+     * if nothing found or if an error occurred attempt to lookup the entries.
      *
-     * @param ticketValue
-     * @throws ConfigException
+     * @return - list of fingerprints or null if nothing found.
      */
-    public void saveTicket(String ticketValue) throws ConfigException {
-        saveTicket(getUserName(), ticketValue);
+    public Fingerprint[] loadFingerprints() {
+        Fingerprint[] fingerprints = null;
+        try {
+            fingerprints = FingerprintsHelper.getFingerprints(trustFilePath);
+        } catch (IOException e) {
+            Log.error(e.getMessage());
+        }
 
-    }
-
-    /**
-     * Save specified auth ticket value as associate with this server's address
-     * and user name from the userName parameter. This will attempt to write
-     * an entry to the p4tickets file either specified as the P4TICKETS environment
-     * variable or at the OS specific default location. If the ticket value
-     * is null then the current entry will be cleared.
-     *
-     * @param userName
-     * @param ticketValue
-     * @throws ConfigException
-     */
-    public void saveTicket(String userName, String ticketValue) throws ConfigException {
-            ConfigException exception = null;
-
-            // Must downcase the username to find or save a ticket when
-            // connected to a case insensitive server.
-            if (!isCaseSensitive() && userName != null) {
-                userName = userName.toLowerCase();
-            }
-
-            String serverId = getServerId();
-            // Try to save the ticket by server id first if set
-            if (serverId != null) {
-                    try {
-                        AuthTicketsHelper.saveTicket(userName, serverId, ticketValue,
-                                this.ticketsFilePath, this.authFileLockTry,
-                                this.authFileLockDelay, this.authFileLockWait);
-                    } catch (IOException e) {
-                            exception = new ConfigException(e);
-                    }
-            }
-
-            // If id is null try to use configured server address
-            // If ticket value is null try to clear out any old values by the
-            // configured server address
-            if (ticketValue == null || serverId == null) {
-                    // Try to save the ticket by server address
-                    String server = null;
-                    if (this.serverHost != null) {
-                            server = this.serverHost;
-                            if (this.serverPort != UNKNOWN_SERVER_PORT) {
-                                    server += ":" + Integer.toString(this.serverPort);
-                            }
-                    } else if (this.serverPort != UNKNOWN_SERVER_PORT) {
-                            server = Integer.toString(this.serverPort);
-                    }
-                    if (server != null) {
-                            try {
-                                        AuthTicketsHelper.saveTicket(userName, server, ticketValue,
-                                        this.ticketsFilePath, this.authFileLockTry,
-                                        this.authFileLockDelay, this.authFileLockWait);
-                            } catch (IOException e) {
-                                    // Use first exception if thrown
-                                    if (exception == null) {
-                                            exception = new ConfigException(e);
-                                    }
-                            }
-                    }
-            }
-
-            //Throw the exception from either save attempt
-            if (exception != null) {
-                    throw exception;
-            }
+        return fingerprints;
     }
 
     /**
@@ -743,638 +1154,253 @@ public abstract class RpcServer extends Server {
      * or the standard p4tickets file location for the current OS. Will return
      * null if not found or if an error occurred attempt to lookup the value.
      *
-     * @param serverId
+     * @return - ticket value to get used for {@link #setAuthTicket(String)} or
+     * null if not found.
+     */
+    public String loadTicket(final String serverId) {
+        return loadTicket(serverId, getUserName());
+    }
+
+    /**
+     * Get the p4tickets entry value for the specified user and server address
+     * based upon a search of either the file found at
+     * {@link PropertyDefs#TICKET_PATH_KEY_SHORT_FORM},
+     * {@link PropertyDefs#TICKET_PATH_KEY}, the P4TICKETS environment variable
+     * or the standard p4tickets file location for the current OS. Will return
+     * null if not found or if an error occurred attempt to lookup the value.
      *
      * @return - ticket value to get used for {@link #setAuthTicket(String)} or
-     *         null if not found.
+     * null if not found.
      */
-    public String loadTicket(String serverId) {
-            String ticketValue = null;
-            String name = getUserName();
-            if (name != null) {
-                    try {
-                            ticketValue = AuthTicketsHelper.getTicketValue(name,
-                                            serverId, this.ticketsFilePath);
-                    } catch (IOException e) {
-                            ticketValue = null;
-                    }
-                    if (ticketValue == null) {
-                            String server = null;
-                            if (this.serverHost != null) {
-                                    server = this.serverHost;
-                                    if (this.serverPort != UNKNOWN_SERVER_PORT) {
-                                            server += ":" + Integer.toString(this.serverPort);
-                                    }
-                            } else if (this.serverPort != UNKNOWN_SERVER_PORT) {
-                                    server = Integer.toString(this.serverPort);
-                            }
-                            try {
-                                    ticketValue = AuthTicketsHelper.getTicketValue(name,
-                                                    server, this.ticketsFilePath);
-                            } catch (IOException e) {
-                                    ticketValue = null;
-                            }
-                    }
+    public String loadTicket(String serverId, String name) {
+        String ticketValue = null;
+        if (isNotBlank(name)) {
+            ticketValue = quietGetTicketValue(name, serverId);
+            if (isBlank(ticketValue)) {
+                String server = getServerHostPort();
+                ticketValue = quietGetTicketValue(name, server);
             }
-            return ticketValue;
+        }
+        return ticketValue;
+    }
+
+    private String quietGetTicketValue(final String userName, final String serverOrServerId) {
+        String ticketValue = null;
+        try {
+            ticketValue = AuthTicketsHelper.getTicketValue(userName, serverOrServerId,
+                    ticketsFilePath);
+        } catch (IOException ignore) {
+        }
+
+        return ticketValue;
+    }
+
+    protected void processCmdCallbacks(final int cmdCallBackKey, final long timeTaken,
+            final List<Map<String, Object>> resultMaps) {
+
+        commandCallback.completedServerCommand(cmdCallBackKey, timeTaken);
+        if (nonNull(resultMaps)) {
+            for (Map<String, Object> map : resultMaps) {
+                // p4ic4idea: use IServerMessage instead of string
+                final IServerMessage msg = ResultMapParser.getErrorOrInfoStr(map);
+                if (nonNull(msg)) {
+                    int severity = msg.getSeverity();
+                    if (severity != MessageSeverityCode.E_EMPTY) {
+                        this.commandCallback.receivedServerMessage(
+                                cmdCallBackKey, msg.getGeneric(), severity, msg);
+                    }
+
+                    if (msg.getSeverity() == MessageSeverityCode.E_INFO) {
+                        this.commandCallback.receivedServerInfoLine(cmdCallBackKey, msg);
+                    } else if (severity >= MessageSeverityCode.E_FAILED) {
+                        this.commandCallback.receivedServerErrorLine(cmdCallBackKey, msg);
+                    }
+                }
+            }
+        }
+    }
+
+    @Deprecated
+    public int getSeverityCode(Map<String, Object> map) {
+        // p4ic4idea: rewrite to check all messages
+        IServerMessage err = getErrorOrInfoStr(map);
+        return err == null ? E_EMPTY : err.getSeverity();
+    }
+
+    @Deprecated
+    public int getGenericCode(Map<String, Object> map) {
+        // p4ic4idea: rewrite to check all messages
+        IServerMessage err = getErrorOrInfoStr(map);
+        return err == null ? EV_NONE : err.getGeneric();
+    }
+
+    /**
+     * Return the Perforce Server's authId.
+     * <p>
+     * This may be: addr:port or clusterId or authId If the connection hasn't
+     * been made yet, this could be null.
+     *
+     * @return possibly-null Perforce authentication id
+     * @since 2016.1
+     */
+    public String getAuthId() {
+        if (isClusterMember()) {
+            return serverInfo.getServerCluster();
+        }
+
+        return getServerHostPort();
+    }
+
+    /**
+     * Save current ticket returned from {@link #getAuthTicket()}.
+     */
+    public void saveCurrentTicket() throws P4JavaException {
+        saveTicket(getAuthTicket());
+    }
+
+    /**
+     * Save specified auth ticket value as associate with this server's address
+     * and configured user returned from {@link #getUserName()}. This will
+     * attempt to write an entry to the p4tickets file either specified as the
+     * P4TICKETS environment variable or at the OS specific default location. If
+     * the ticket value is null then the current entry in the will be cleared.
+     */
+    public void saveTicket(String ticketValue) throws ConfigException {
+        saveTicket(getUserName(), ticketValue);
     }
 
     /**
      * Save specified fingerprint value as associate with this server's address.
      * This will attempt to write an entry to the p4trust file either specified
-     * as the P4TRUST environment variable or at the OS specific default location.
-     * If the fingerprint value is null then the current entry will be cleared.
-     *
-     * @param serverIpPort
-     * @param fingerprintValue
-     * @throws ConfigException
+     * as the P4TRUST environment variable or at the OS specific default
+     * location. If the fingerprint value is null then the current entry will be
+     * cleared.
      */
-    public void saveFingerprint(String serverIpPort, String fingerprintUser, String fingerprintValue) throws ConfigException {
-            if (serverIpPort == null || fingerprintUser == null) {
-                return;
-            }
+    public void saveFingerprint(final String serverIpPort, final String fingerprintUser,
+            final String fingerprintValue) throws ConfigException {
 
-            // Save the fingerprint by server IP and port
-            try {
-                    FingerprintsHelper.saveFingerprint(fingerprintUser,
-                            serverIpPort, fingerprintValue,
-                            this.trustFilePath, this.authFileLockTry,
-                            this.authFileLockDelay, this.authFileLockWait);
-            } catch (IOException e) {
-                    throw new ConfigException(e);
-            }
-    }
+        if (isBlank(serverIpPort) || isBlank(fingerprintUser)) {
+            return;
+        }
 
-    /**
-     * Get the p4trust entry value for the server IP and port based upon a search
-     * of either the file found at {@link PropertyDefs#TRUST_PATH_KEY_SHORT_FORM},
-     * {@link PropertyDefs#TRUST_PATH_KEY}, the P4TRUST environment variable
-     * or the standard p4trust file location for the current OS. Will return
-     * null if not found or if an error occurred attempt to lookup the value.
-     *
-     * @param serverIpPort
-     *
-     * @return - fingerprint or null if not found.
-     */
-    public Fingerprint loadFingerprint(String serverIpPort, String fingerprintUser) {
-            if (serverIpPort == null || fingerprintUser == null) {
-                    return null;
-            }
-
-            Fingerprint fingerprint = null;
-
-            try {
-                    fingerprint = FingerprintsHelper.getFingerprint(fingerprintUser,
-                            serverIpPort, this.trustFilePath);
-            } catch (IOException e) {
-                    fingerprint = null;
-            }
-
-            return fingerprint;
-    }
-
-    /**
-     * Get the p4trust entries from the file found at {@link PropertyDefs#TRUST_PATH_KEY_SHORT_FORM},
-     * {@link PropertyDefs#TRUST_PATH_KEY}, the P4TRUST environment variable
-     * or the standard p4trust file location for the current OS. Will return
-     * null if nothing found or if an error occurred attempt to lookup the entries.
-     *
-     * @return - list of fingerprints or null if nothing found.
-     */
-    public Fingerprint[] loadFingerprints() {
-            Fingerprint[] fingerprints = null;
-
-            try {
-                fingerprints = FingerprintsHelper.getFingerprints(this.trustFilePath);
-            } catch (IOException e) {
-                // Suppress error
-            }
-
-            return fingerprints;
-    }
-
-    /**
-     * @see com.perforce.p4java.impl.mapbased.server.Server#getTrust()
-     */
-    public String getTrust() throws P4JavaException {
-        RpcConnection rpcConnection = null;
-
+        // Save the fingerprint by server IP and port
         try {
-            rpcConnection = new RpcStreamConnection(serverHost, serverPort, props,
-                    this.serverStats, this.charset, this.secure);
-
-            return rpcConnection.getFingerprint();
-
-        } finally {
-            if (rpcConnection != null) {
-                rpcConnection.disconnect(null);
-            }
+            FingerprintsHelper.saveFingerprint(fingerprintUser, serverIpPort, fingerprintValue,
+                    trustFilePath, authFileLockTry, authFileLockDelay, authFileLockWait);
+        } catch (IOException e) {
+            throw new ConfigException(e);
         }
     }
 
     /**
-     * @see com.perforce.p4java.impl.mapbased.server.Server#addTrust(com.perforce.p4java.option.server.TrustOptions)
+     * Save specified auth ticket value as associate with this server's address
+     * and user name from the userName parameter. This will attempt to write an
+     * entry to the p4tickets file either specified as the P4TICKETS environment
+     * variable or at the OS specific default location. If the ticket value is
+     * null then the current entry will be cleared.
      */
-    public String addTrust(TrustOptions opts) throws P4JavaException {
+    public void saveTicket(final String userName, final String ticketValue) throws ConfigException {
+        String lowerCaseableUserName = getLowerCaseableUserName(userName);
+        String serverId = getServerId();
+        // Try to save the ticket by server id first if set
+        ConfigException exception = quietSaveTicket(serverId, lowerCaseableUserName, ticketValue,
+                null);
 
-            return addTrust(null, opts);
-    }
-
-    /**
-     * @see com.perforce.p4java.impl.mapbased.server.Server#addTrust(java.lang.String)
-     */
-    public String addTrust(String fingerprintValue) throws P4JavaException {
-            if (fingerprintValue == null) {
-                    throw new NullPointerError("null fingerprintValue passed to addTrust");
-            }
-
-            return addTrust(fingerprintValue, null);
-    }
-
-    /**
-    	 * @see com.perforce.p4java.impl.mapbased.server.Server#addTrust(com.perforce.p4java.option.server.TrustOptions, java.lang.String)
-     */
-    public String addTrust(String fingerprintValue, TrustOptions opts) throws P4JavaException {
-            RpcConnection rpcConnection = null;
-
-            try {
-                    rpcConnection = new RpcStreamConnection(serverHost, serverPort, props,
-                            this.serverStats, this.charset, this.secure);
-
-                    if (opts == null) {
-                            opts = new TrustOptions();
-                    }
-
-                    // Assume '-y' and '-f' options, if specified fingerprint value.
-                    if (fingerprintValue != null) {
-                            opts.setAutoAccept(true);
-                            opts.setForce(true);
-                    }
-
-                    String fingerprintUser = opts.isReplacement() ? ClientTrust.FINGERPRINT_REPLACEMENT_USER_NAME : ClientTrust.FINGERPRINT_USER_NAME;
-                    String fingerprint = (fingerprintValue != null) ? fingerprintValue : rpcConnection.getFingerprint();
-
-                    String newConnectionWarning = clientTrust.getMessages().getMessage(
-                            ClientTrust.CLIENT_TRUST_WARNING_NEW_CONNECTION,
-                            new Object[]{getServerHostPort(), rpcConnection.getFingerprint()});
-                    String newKeyWarning = clientTrust.getMessages().getMessage(
-                            ClientTrust.CLIENT_TRUST_WARNING_NEW_KEY,
-                            new Object[]{getServerHostPort(), rpcConnection.getFingerprint()});
-
-                    boolean fpExist = clientTrust.fingerprintExists(rpcConnection.getServerIpPort(),
-                            ClientTrust.FINGERPRINT_USER_NAME);
-                    boolean fpMatch = clientTrust.fingerprintMatches(rpcConnection.getServerIpPort(),
-                            ClientTrust.FINGERPRINT_USER_NAME, rpcConnection.getFingerprint());
-
-                    boolean fpReplaceExist = clientTrust.fingerprintExists(rpcConnection.getServerIpPort(),
-                            ClientTrust.FINGERPRINT_REPLACEMENT_USER_NAME);
-                    boolean fpReplaceMatch = clientTrust.fingerprintMatches(rpcConnection.getServerIpPort(),
-                            ClientTrust.FINGERPRINT_REPLACEMENT_USER_NAME, rpcConnection.getFingerprint());
-
-                    String trustAddedInfo = clientTrust.getMessages().getMessage(ClientTrust.CLIENT_TRUST_ADDED,
-                            new Object[]{getServerHostPort(), rpcConnection.getServerIpPort()});
-
-                    // auto refuse
-                    if (opts.isAutoRefuse()) {
-                            // new connection
-                            if (!fpExist) {
-                                    return newConnectionWarning;
-                            }
-                            // new key
-                            if (!fpMatch) {
-                                    return newKeyWarning;
-                            }
-                    }
-
-                    // check and use replacement fingerprint
-                    if ((!fpExist || !fpMatch) && (fpReplaceExist && fpReplaceMatch)) {
-                            // Install/override fingerprint
-                            clientTrust.installFingerprint(rpcConnection.getServerIpPort(), ClientTrust.FINGERPRINT_USER_NAME, rpcConnection.getFingerprint());
-                            // Remove the replacement
-                            clientTrust.removeFingerprint(rpcConnection.getServerIpPort(), ClientTrust.FINGERPRINT_REPLACEMENT_USER_NAME);
-
-    	    		return clientTrust.getMessages().getMessage(ClientTrust.CLIENT_TRUST_ALREADY_ESTABLISHED);     						
-                    }
-
-                    // new connection
-                    if (!fpExist) {
-                            // auto accept
-                            if (opts.isAutoAccept()) {
-                                    // install fingerprint
-                                    clientTrust.installFingerprint(rpcConnection.getServerIpPort(),
-                                            fingerprintUser, fingerprint);
-                                    return newConnectionWarning + trustAddedInfo;
-                            }
-                            // didn't accept
-                            throw new TrustException(TrustException.Type.NEW_CONNECTION,
-                                    getServerHostPort(),
-                                    rpcConnection.getServerIpPort(),
-                                    rpcConnection.getFingerprint(),
-                                    newConnectionWarning +
-                                    clientTrust.getMessages().getMessage(ClientTrust.CLIENT_TRUST_ADD_EXCEPTION_NEW_CONNECTION)
-                            );
-                    }
-
-                    // new key
-                    if (!fpMatch) {
-                            // force install
-                            if (opts.isForce()) {
-                                    // auto accept
-                                    if (opts.isAutoAccept()) {
-                                            // install fingerprint
-                                            clientTrust.installFingerprint(rpcConnection.getServerIpPort(),
-                                                    fingerprintUser, fingerprint);
-                                            return newKeyWarning + trustAddedInfo;
-                                    }
-                                    // didn't accept
-                                    throw new TrustException(TrustException.Type.NEW_KEY,
-                                            getServerHostPort(),
-                                            rpcConnection.getServerIpPort(),
-                                            rpcConnection.getFingerprint(),
-                                            newKeyWarning +
-                                            clientTrust.getMessages().getMessage(ClientTrust.CLIENT_TRUST_ADD_EXCEPTION_NEW_KEY)
-                                    );
-                            }
-                            // not force install
-                            throw new TrustException(TrustException.Type.NEW_KEY,
-                                    getServerHostPort(),
-                                    rpcConnection.getServerIpPort(),
-                                    rpcConnection.getFingerprint(),
-                                    newKeyWarning +
-                                    clientTrust.getMessages().getMessage(ClientTrust.CLIENT_TRUST_ADD_EXCEPTION_NEW_KEY)
-                            );
-                    }
-
-                    if (fpMatch && fingerprintValue != null) {
-                            // install fingerprint
-                            clientTrust.installFingerprint(rpcConnection.getServerIpPort(),
-                                    fingerprintUser, fingerprint);
-                            return trustAddedInfo;
-                    }
-
-                    // trust already established
-                    return clientTrust.getMessages().getMessage(ClientTrust.CLIENT_TRUST_ALREADY_ESTABLISHED);
-
-            } finally {
-                    if (rpcConnection != null) {
-                            rpcConnection.disconnect(null);
-                    }
-            }
-    }
-
-/**
- * @see com.perforce.p4java.impl.mapbased.server.Server#removeTrust()
- */
-public String removeTrust() throws P4JavaException {
-
-    return removeTrust(null);
-}
-
-/**
- * @see com.perforce.p4java.impl.mapbased.server.Server#removeTrust(com.perforce.p4java.option.server.TrustOptions)
- */
-public String removeTrust(TrustOptions opts) throws P4JavaException {
-    RpcConnection rpcConnection = null;
-
-    try {
-        rpcConnection = new RpcStreamConnection(serverHost, serverPort, props,
-                this.serverStats, this.charset, this.secure);
-
-        String fingerprintUser = (opts != null && opts.isReplacement()) ? ClientTrust.FINGERPRINT_REPLACEMENT_USER_NAME : ClientTrust.FINGERPRINT_USER_NAME;
-
-        String message = "";
-
-        // new connection
-        if (!clientTrust.fingerprintExists(rpcConnection.getServerIpPort(),
-                ClientTrust.FINGERPRINT_USER_NAME)) {
-            message = clientTrust.getMessages().getMessage(
-                    ClientTrust.CLIENT_TRUST_WARNING_NEW_CONNECTION,
-                    new Object[]{getServerHostPort(), rpcConnection.getFingerprint()}) + message;
-        } else {
-            // new key
-            if (!clientTrust.fingerprintMatches(rpcConnection.getServerIpPort(),
-                    ClientTrust.FINGERPRINT_USER_NAME, rpcConnection.getFingerprint())) {
-                message = clientTrust.getMessages().getMessage(
-                        ClientTrust.CLIENT_TRUST_WARNING_NEW_KEY,
-                        new Object[]{getServerHostPort(), rpcConnection.getFingerprint()}) + message;
-            }
-        }
-
-        // remove the fingerprint from the trust file
-        clientTrust.removeFingerprint(rpcConnection.getServerIpPort(), fingerprintUser);
-
-        return message + clientTrust.getMessages().getMessage(
-                ClientTrust.CLIENT_TRUST_REMOVED,
-                new Object[]{getServerHostPort(), rpcConnection.getServerIpPort()});
-
-    } finally {
-        if (rpcConnection != null) {
-            rpcConnection.disconnect(null);
-        }
-    }
-}
-
-/**
- * @see com.perforce.p4java.impl.mapbased.server.Server#getTrusts()
- */
-public List<Fingerprint> getTrusts() throws P4JavaException {
-
-    return getTrusts(null);
-}
-
-/**
- * @see com.perforce.p4java.impl.mapbased.server.Server#getTrusts(com.perforce.p4java.option.server.TrustOptions)
- */
-public List<Fingerprint> getTrusts(TrustOptions opts) throws P4JavaException {
-    Fingerprint[] fingerprints = loadFingerprints();
-    if (fingerprints != null) {
-        List<Fingerprint> fingerprintsList = new ArrayList<Fingerprint>();
-        List<Fingerprint> replacementsList = new ArrayList<Fingerprint>();
-        for (Fingerprint fp : fingerprints) {
-            if (fp != null && fp.getUserName() != null) {
-                if (fp.getUserName().equalsIgnoreCase(
-                        ClientTrust.FINGERPRINT_REPLACEMENT_USER_NAME)) {
-                    replacementsList.add(fp);
-                } else {
-                    fingerprintsList.add(fp);
-                }
-            }
-        }
-        if (opts != null && opts.isReplacement()) {
-            return replacementsList;
-        } else {
-            return fingerprintsList;
-        }
-    }
-    return null;
-}
-
-/**
-     * Set the server's id field used for storing authentication tickets. The id
-     * specified here will be used when saving ticket values to a p4 tickets
-     * file. This field should only be set to the server id returned as part of
-     * a server message.
-     *
-     * @param serverId
-     */
-    public void setServerId(String serverId) {
-            this.serverId = serverId;
-    }
-
-    /**
-     * Get the server's id field used for storing authentication tickets. This
-     * id should only be used as a server address portion for entries in a p4
-     * tickets file.
-     *
-     * @return - possibly null server id
-     */
-    public String getServerId() {
-            return this.serverId;
-    }
-
-    /**
-     * Return true iff we should be performing server -> client
-     * file write I/O operations in place for this command.<p>
-     *
-     * See PropertyDefs.WRITE_IN_PLACE_KEY javadoc for the semantics
-     * of this.
-     *
-     * @param cmdName non-null command command name string
-     * @return true iff we should do a sync in place
-     */
-    protected boolean writeInPlace(String cmdName) {
-        return cmdName.equalsIgnoreCase(CmdSpec.SYNC.toString())
-            &&	new Boolean(System.getProperty(
-                PropertyDefs.WRITE_IN_PLACE_KEY,
-                    props.getProperty(
-                        PropertyDefs.WRITE_IN_PLACE_SHORT_FORM, "false")));
-    }
-
-    public String getSecretKey() {
-            return getSecretKey(this.userName);
-    }
-
-    public void setSecretKey(String secretKey) {
-        setSecretKey(this.userName, secretKey);
-    }
-
-    public String getSecretKey(String userName) {
-        if (userName != null) {
-            return secretKeys.get(userName);
-        }
-        return null;
-    }
-
-    public void setSecretKey(String userName, String secretKey) {
-        if (userName != null) {
-            if (secretKey == null) {
-                this.secretKeys.remove(userName);
-            } else {
-                this.secretKeys.put(userName, secretKey);
-            }
-        }
-    }
-
-    protected boolean isRelaxCmdNameValidationChecks() {
-            return relaxCmdNameValidationChecks;
-    }
-
-    protected void setRelaxCmdNameValidationChecks(
-                    boolean relaxCmdNameValidationChecks) {
-            this.relaxCmdNameValidationChecks = relaxCmdNameValidationChecks;
-    }
-
-    /**
-     * Get the RPC packet field rule for skipping the charset conversion of
-     * a range of RPC packet fields; leave the values as bytes. <p>
-     *
-     * Note: currently only supporting the "export" command.
-     */
-    protected RpcPacketFieldRule getRpcPacketFieldRule(Map<String, Object> inMap, CmdSpec cmdSpec) {
-        if (inMap != null && cmdSpec != null) {
-            if (cmdSpec == CmdSpec.EXPORT) {
-                if (inMap.containsKey(cmdSpec.toString())) {
-                    // The map for this command spec
-                    if (inMap.get(cmdSpec.toString()) instanceof Map<?,?>) {
-                        @SuppressWarnings("unchecked")
-                        Map<String, Object> cmdMap = (Map<String, Object>)inMap.remove(cmdSpec.toString());
-                        if (cmdMap != null) {
-                            return RpcPacketFieldRule.getInstance(cmdMap);
-                        }
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
-    /**
-    	 * @see com.perforce.p4java.impl.mapbased.server.Server#setAuthTicket(java.lang.String, java.lang.String)
-     */
-    public void setAuthTicket(String userName, String authTicket) {
-        if (userName == null) {
-            throw new IllegalArgumentException("Null userName passed to the setAuthTicket method.");
-        }
-        // Must downcase the username to find or save a ticket when
-        // connected to a case insensitive server.
-        if (!isCaseSensitive() && userName != null) {
-            userName = userName.toLowerCase();
-        }
-        String serverAddress = getServerId() != null ? getServerId() : getServerAddress();
-        // Handling 'serverCluster'
-        if (this.serverInfo != null && this.serverInfo.getServerCluster() != null) {
-            serverAddress = serverInfo.getServerCluster();
-        }
-        if (serverAddress == null) {
-            throw new IllegalStateException("Null serverAddress in the setAuthTicket method.");
-        }
-        if (authTicket == null) {
-            this.authTickets.remove(composeAuthTicketEntryKey(userName, serverAddress));
-        } else {
-            this.authTickets.put(composeAuthTicketEntryKey(userName, serverAddress), authTicket);
-        }
-    }
-
-    /**
-    	 * @see com.perforce.p4java.impl.mapbased.server.Server#getAuthTicket(java.lang.String)
-     */
-    public String getAuthTicket(String userName) {
-        // Must downcase the username to find or save a ticket when
-        // connected to a case insensitive server.
-        if (!isCaseSensitive() && userName != null) {
-            userName = userName.toLowerCase();
-        }
-        String serverAddress = getServerId() != null ? getServerId() : getServerAddress();
-        // Handling 'serverCluster'
-        if (this.serverInfo != null && this.serverInfo.getServerCluster() != null) {
-            serverAddress = serverInfo.getServerCluster();
-        }
-        if (userName != null && serverAddress != null) {
-            return this.authTickets.get(composeAuthTicketEntryKey(userName, serverAddress));
-        }
-        return null;
-    }
-
-    /**
-    	 * @see com.perforce.p4java.impl.mapbased.server.Server#setTicketsFilePath(java.lang.String)
-     */
-    public void setTicketsFilePath(String ticketsFilePath) {
-        if (ticketsFilePath == null) {
-            throw new IllegalArgumentException("Null ticketsFilePath passed to the setTicketsFilePath method.");
-        }
-        this.ticketsFilePath = ticketsFilePath;
-    }
-
-    /**
-     * @see com.perforce.p4java.impl.mapbased.server.Server#getTicketsFilePath()
-     */
-    public String getTicketsFilePath() {
-        return this.ticketsFilePath;
-    }
-
-    /**
-    	 * @see com.perforce.p4java.impl.mapbased.server.Server#setTrustFilePath(java.lang.String)
-     */
-    public void setTrustFilePath(String trustFilePath) {
-        if (ticketsFilePath == null) {
-            throw new IllegalArgumentException("Null trustFilePath passed to the setTrustFilePath method.");
-        }
-        this.trustFilePath = trustFilePath;
-    }
-
-    /**
-     * @see com.perforce.p4java.impl.mapbased.server.Server#getTrustFilePath()
-     */
-    public String getTrustFilePath() {
-        return this.trustFilePath;
-    }
-
-    /**
-     * Compose the key for an auth ticket entry
-     */
-    protected String composeAuthTicketEntryKey(String userName, String serverAddress) {
-        if (userName == null) {
-            throw new IllegalArgumentException("Null userName passed to the composeAuthTicketEntryKey method.");
-        }
-        if (serverAddress == null) {
-            throw new IllegalArgumentException("Null serverAddress in the composeAuthTicketEntryKey method.");
-        }
-        if (serverAddress.indexOf(':') == -1) {
-            serverAddress = "localhost:" + serverAddress;
-        }
-        return (serverAddress + "=" + userName);
-    }
-
-    /**
-     * Get the server's address field used for storing authentication tickets.
-     *
-     * @return - possibly null server address
-     */
-    public String getServerAddress() {
-        String serverAddress = this.serverAddress;
         // If id is null try to use configured server address
-        if (serverAddress == null) {
-                if (this.serverHost != null) {
-                    serverAddress = this.serverHost;
-                    if (this.serverPort != UNKNOWN_SERVER_PORT) {
-                        serverAddress += ":" + Integer.toString(this.serverPort);
-                    }
-                } else if (this.serverPort != UNKNOWN_SERVER_PORT) {
-                    serverAddress = Integer.toString(this.serverPort);
+        // If ticket value is null try to clear out any old values by the
+        // configured server address
+        if (isBlank(ticketValue) || isBlank(serverId)) {
+            // Try to save the ticket by server address
+            String server = getServerHostPort();
+            exception = quietSaveTicket(server, lowerCaseableUserName, ticketValue, exception);
+        }
+
+        // Throw the exception from either save attempt
+        if (nonNull(exception)) {
+            throw exception;
+        }
+    }
+
+    /**
+     * Must downcase the username to find or save a ticket when connected to a
+     * case insensitive server.
+     */
+    private String getLowerCaseableUserName(final String userName) {
+        String lowerCaseableUserName = userName;
+        if (!isCaseSensitive() && isNotBlank(userName)) {
+            lowerCaseableUserName = userName.toLowerCase();
+        }
+
+        return lowerCaseableUserName;
+    }
+
+    private ConfigException quietSaveTicket(final String serverOrServerId,
+            final String lowerCaseUserName, final String ticketValue,
+            final ConfigException exception) {
+
+        if (isNotBlank(serverOrServerId)) {
+            try {
+                AuthTicketsHelper.saveTicket(lowerCaseUserName, serverOrServerId, ticketValue,
+                        ticketsFilePath, authFileLockTry, authFileLockDelay, authFileLockWait);
+            } catch (IOException e) {
+                if (nonNull(exception)) {
+                    // p4ic4idea: jdk 1.7 code
+                    // exception.addSuppressed(e);
+                    return exception;
+                } else {
+                    return new ConfigException(e);
                 }
-        }
-        return serverAddress;
-    }
-
-    /**
-     * Get the server's host and port used for the RPC connection.
-     *
-     * @return - possibly null server host and port
-     */
-    public String getServerHostPort() {
-        String serverHostPort = null;
-        if (this.serverHost != null) {
-            serverHostPort = this.serverHost;
-            if (this.serverPort != UNKNOWN_SERVER_PORT) {
-                serverHostPort += ":" + Integer.toString(this.serverPort);
             }
-        } else if (this.serverPort != UNKNOWN_SERVER_PORT) {
-            serverHostPort = Integer.toString(this.serverPort);
         }
-        return serverHostPort;
+
+        return null;
+    }
+
+    public void setSecretKey(final String userName, final String secretKey) {
+        if (isNotBlank(userName)) {
+            if (isBlank(secretKey)) {
+                secretKeys.remove(userName);
+            } else {
+                secretKeys.put(userName, secretKey);
+            }
+        }
     }
 
     /**
-     * Allow for per-command use of tags or not. Currently has limited use
-     * (only a few commands are anomalous as far as we can tell), but may
-     * find more uses generally with experience.<p>.
-     *
-     * This is normally used on a per-command (OneShot RPC server) basis.
-     * In order to use this on a per-session (NTS RPC server) implementation
-     * you must resend the RPC protocol, if the 'useTags' state has changed,
-     * prior to sending the command.
+     * Allow for per-command use of tags or not. Currently has limited use (only
+     * a few commands are anomalous as far as we can tell), but may find more
+     * uses generally with experience.
+     * <p>
+     * .
+     * <p>
+     * This is normally used on a per-command (OneShot RPC server) basis. In
+     * order to use this on a per-session (NTS RPC server) implementation you
+     * must resend the RPC protocol, if the 'useTags' state has changed, prior
+     * to sending the command.
      */
-    protected boolean useTags(String cmdName, String[] cmdArgs, Map<String, Object> inMap, boolean isStreamCmd) {
-        CmdSpec cmdSpec = CmdSpec.getValidP4JCmdSpec(cmdName);
-        if (cmdSpec != null) {
-            if (cmdSpec == CmdSpec.LOGIN) {
+    protected boolean useTags(String cmdName, String[] cmdArgs, Map<String, Object> inMap,
+            boolean isStreamCmd) {
+
+        CmdSpec cmdSpec = getValidP4JCmdSpec(cmdName);
+        if (nonNull(cmdSpec)) {
+            if (cmdSpec == LOGIN) {
                 return false;
             }
             if (isStreamCmd) {
                 switch (cmdSpec) {
-                case DESCRIBE:
-                case DIFF2:
-                case PRINT:
-                case PROTECT:
-                    return false;
-                default:
-                    break;
+                    case DESCRIBE:
+                    case DIFF2:
+                    case PRINT:
+                    case PROTECT:
+                        return false;
+                    default:
+                        break;
                 }
             }
             // Check the inMap for any tagged/non-tagged override
-            if (inMap != null) {
+            if (nonNull(inMap)) {
                 if (inMap.containsKey(IN_MAP_USE_TAGS_KEY)) {
-                    return new Boolean((String)inMap.remove(IN_MAP_USE_TAGS_KEY));
+                    return Boolean.valueOf((String) inMap.remove(IN_MAP_USE_TAGS_KEY));
                 }
             }
         }
@@ -1382,29 +1408,20 @@ public List<Fingerprint> getTrusts(TrustOptions opts) throws P4JavaException {
     }
 
     /**
-     * Get the RPC user authentication counter.
+     * Return true iff we should be performing server -> client file write I/O
+     * operations in place for this command.
+     * <p>
+     * <p>
+     * See PropertyDefs.WRITE_IN_PLACE_KEY javadoc for the semantics of this.
      *
-     * @return RPC user authentication counter
+     * @param cmdName non-null command command name string
+     * @return true iff we should do a sync in place
      */
-    public RpcUserAuthCounter getAuthCounter() {
-        return this.authCounter;
-    }
+    protected boolean writeInPlace(String cmdName) {
+        String writeInPlaceKeyPropertyValue = System.getProperty(WRITE_IN_PLACE_KEY,
+                props.getProperty(WRITE_IN_PLACE_SHORT_FORM, "false"));
 
-    /**
-     * Get the server's address for the RPC connection.
-     *
-     * @return possibly-null RPC server address
-     */
-    public IServerAddress getRpcServerAddress() {
-        return this.rpcServerAddress;
-    }
-
-    /**
-     * Set the server's address for the RPC connection.
-     *
-     * @param rpcServerAddress RPC server address
-     */
-    public void setRpcServerAddress(IServerAddress rpcServerAddress) {
-        this.rpcServerAddress = rpcServerAddress;
+        return cmdName.equalsIgnoreCase(CmdSpec.SYNC.toString())
+                && Boolean.valueOf(writeInPlaceKeyPropertyValue);
     }
 }

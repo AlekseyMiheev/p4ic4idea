@@ -170,6 +170,23 @@ task addDepotLinks {
 }
 
 
+task testP4Change {
+    dependsOn 'startP4d'
+    dependsOn 'addDepotLinks'
+
+    doLast {
+def out = new ByteArrayOutputStream()
+def args = [p4Exec, '-d', clientRootDir, 'changes', '-m1', '//...']
+exec {
+environment("P4ENVIRO", "$clientRootDir/.p4config")
+commandLine args
+standardOutput = out
+}
+println("change ["+out.toString().split(' ')[1]+"]")
+    }
+}
+
+
 
 def runP4(argArray, String stdin = null) {
     def args = [p4Exec, '-d', clientRootDir ]
